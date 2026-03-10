@@ -7,6 +7,9 @@ import * as sessionManager from '../services/sessionManager.js';
 vi.mock('../services/dataStore.js');
 vi.mock('../services/executionService.js');
 vi.mock('../services/sessionManager.js');
+vi.mock('../services/voiceService.js');
+
+import * as voiceService from '../services/voiceService.js';
 
 describe('queueManager', () => {
   const threadId = 'thread-1';
@@ -87,6 +90,87 @@ describe('queueManager', () => {
       await processNextInQueue(mockChannel as any, threadId, parentId);
 
       expect(executionService.runPrompt).not.toHaveBeenCalled();
+    });
+
+    it('should transcribe queued voice message and run prompt', async () => {
+      vi.mocked(dataStore.getQueueSettings).mockReturnValue({
+        paused: false,
+        continueOnFailure: false,
+        freshContext: true
+      });
+      vi.mocked(dataStore.popFromQueue).mockReturnValue({
+        prompt: '',
+        userId: 'user-1',
+        timestamp: Date.now(),
+        voiceAttachmentUrl: 'https://cdn.discord/voice.ogg',
+        voiceAttachmentSize: 2048,
+      });
+      vi.mocked(voiceService.transcribe).mockResolvedValue('Queued voice text');
+
+      await processNextInQueue(mockChannel as any, threadId, parentId);
+
+      expect(voiceService.transcribe).toHaveBeenCalledWith(
+        'https://cdn.discord/voice.ogg',
+        2048,
+      );
+      expect(executionService.runPrompt).toHaveBeenCalledWith(
+        mockChannel,
+        threadId,
+        'Queued voice text',
+        parentId,
+      );
+    });
+
+    it('should skip and process next when voice transcription fails', async () => {
+      vi.mocked(dataStore.getQueueSettings).mockReturnValue({
+        paused: false,
+        continueOnFailure: false,
+        freshContext: true
+      });
+      // First pop returns voice item that fails, second pop returns nothing
+      vi.mocked(dataStore.popFromQueue)
+        .mockReturnValueOnce({
+          prompt: '',
+          userId: 'user-1',
+          timestamp: Date.now(),
+          voiceAttachmentUrl: 'https://cdn.discord/voice.ogg',
+          voiceAttachmentSize: 1024,
+        })
+        .mockReturnValueOnce(undefined);
+      vi.mocked(voiceService.transcribe).mockRejectedValue(new Error('Whisper API error'));
+      const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+      await processNextInQueue(mockChannel as any, threadId, parentId);
+
+      expect(executionService.runPrompt).not.toHaveBeenCalled();
+      // Should have tried to process next item (recursive call)
+      expect(dataStore.popFromQueue).toHaveBeenCalledTimes(2);
+      consoleSpy.mockRestore();
+    });
+
+    it('should skip and process next when voice transcription returns empty', async () => {
+      vi.mocked(dataStore.getQueueSettings).mockReturnValue({
+        paused: false,
+        continueOnFailure: false,
+        freshContext: true
+      });
+      vi.mocked(dataStore.popFromQueue)
+        .mockReturnValueOnce({
+          prompt: '',
+          userId: 'user-1',
+          timestamp: Date.now(),
+          voiceAttachmentUrl: 'https://cdn.discord/voice.ogg',
+          voiceAttachmentSize: 1024,
+        })
+        .mockReturnValueOnce(undefined);
+      vi.mocked(voiceService.transcribe).mockResolvedValue('   ');
+      const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+      await processNextInQueue(mockChannel as any, threadId, parentId);
+
+      expect(executionService.runPrompt).not.toHaveBeenCalled();
+      expect(dataStore.popFromQueue).toHaveBeenCalledTimes(2);
+      consoleSpy.mockRestore();
     });
   });
 });

@@ -2,9 +2,17 @@ import { getOpenAIApiKey } from './configStore.js';
 
 const WHISPER_API_URL = 'https://api.openai.com/v1/audio/transcriptions';
 const MAX_FILE_SIZE = 25 * 1024 * 1024; // 25MB
+const DOWNLOAD_TIMEOUT_MS = 30_000; // 30s for Discord CDN download
+const WHISPER_TIMEOUT_MS = 60_000;  // 60s for Whisper API transcription
 
 export function isVoiceEnabled(): boolean {
   return !!getOpenAIApiKey();
+}
+
+function fetchWithTimeout(url: string, options: RequestInit, timeoutMs: number): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  return fetch(url, { ...options, signal: controller.signal }).finally(() => clearTimeout(timer));
 }
 
 export async function transcribe(attachmentUrl: string, fileSize?: number): Promise<string> {
@@ -18,9 +26,9 @@ export async function transcribe(attachmentUrl: string, fileSize?: number): Prom
   }
 
   // Download audio from Discord CDN
-  const audioResponse = await fetch(attachmentUrl);
+  const audioResponse = await fetchWithTimeout(attachmentUrl, {}, DOWNLOAD_TIMEOUT_MS);
   if (!audioResponse.ok) {
-    throw new Error(`Failed to download audio: ${audioResponse.status}`);
+    throw new Error(`Failed to download audio: HTTP ${audioResponse.status}`);
   }
 
   const audioBuffer = await audioResponse.arrayBuffer();
@@ -33,13 +41,13 @@ export async function transcribe(attachmentUrl: string, fileSize?: number): Prom
   formData.append('response_format', 'text');
 
   // POST to OpenAI Whisper API
-  const response = await fetch(WHISPER_API_URL, {
+  const response = await fetchWithTimeout(WHISPER_API_URL, {
     method: 'POST',
     headers: {
       'Authorization': `Bearer ${apiKey}`,
     },
     body: formData,
-  });
+  }, WHISPER_TIMEOUT_MS);
 
   if (!response.ok) {
     let errorDetail = '';
@@ -48,10 +56,12 @@ export async function transcribe(attachmentUrl: string, fileSize?: number): Prom
     } catch {
       // ignore
     }
+    // Log full error detail server-side only
+    console.error(`[Voice STT] Whisper API error ${response.status}:`, errorDetail);
     if (response.status === 401) {
       throw new Error('AUTH_FAILURE');
     }
-    throw new Error(`Whisper API error ${response.status}: ${errorDetail}`);
+    throw new Error(`Whisper API error (HTTP ${response.status})`);
   }
 
   // response_format: 'text' returns plain text string

@@ -26,6 +26,8 @@ export interface QueuedMessage {
   prompt: string;
   userId: string;
   timestamp: number;
+  voiceAttachmentUrl?: string;
+  voiceAttachmentSize?: number;
 }
 
 export interface QueueSettings {
