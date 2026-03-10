@@ -2,6 +2,24 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.4.0] - 2026-03-10
+
+### Added
+- **Voice Message Transcription (STT)**: Automatically transcribe Discord voice messages to text using OpenAI Whisper API.
+  - Send voice messages in `/code` passthrough threads — they are transcribed and processed identically to typed text.
+  - 🎙️ reaction indicates transcription in progress; removed on completion.
+  - Voice messages sent while the bot is busy are queued with attachment metadata — STT is deferred until the queue processes them.
+  - **CLI commands**: `remote-opencode voice set <apiKey>`, `voice remove`, `voice status` for managing the OpenAI API key.
+  - **Discord `/voice` command**: `remove` and `status` subcommands (API key setting is CLI-only for security).
+  - **Setup wizard integration**: Optional step to configure OpenAI API key during `remote-opencode setup`.
+  - **API key resolution**: `OPENAI_API_KEY` environment variable takes priority over `config.json`.
+  - Graceful degradation — voice messages are silently ignored when no API key is configured.
+  - Timeout protection: 30s for Discord CDN download, 60s for Whisper API transcription.
+  - File size validation: rejects files exceeding Whisper's 25MB limit before download.
+
+### Changed
+- **Queue system**: `QueuedMessage` interface extended with `voiceAttachmentUrl` and `voiceAttachmentSize` fields to support deferred voice transcription.
+- **Message handler**: Refactored to check busy state before STT, with error-tolerant reaction helpers (`safeReact`, `safeRemoveReaction`).
 ## [1.3.0] - 2026-03-02
 
 ### Added

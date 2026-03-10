@@ -15,6 +15,7 @@
 - 🌍 **Work remotely** — Control your home/office workstation from anywhere
 - 👥 **Collaborate** — Share AI coding sessions with team members in Discord
 - 🤖 **Automated Workflows** — Queue up multiple tasks and let the bot process them sequentially
+- 🎤 **Voice Messages** — Send voice messages that are automatically transcribed and processed as text
 
 ## How It Works
 
@@ -147,6 +148,9 @@ If you prefer manual setup or need to troubleshoot:
 | `remote-opencode allow remove <userId>` | Remove a Discord user ID from the allowlist          |
 | `remote-opencode allow list`            | List all user IDs in the allowlist                   |
 | `remote-opencode allow reset`           | Clear the entire allowlist (removes access control)  |
+| `remote-opencode voice set <apiKey>`    | Set OpenAI API key for voice message transcription   |
+| `remote-opencode voice remove`          | Remove the stored OpenAI API key                     |
+| `remote-opencode voice status`          | Show voice transcription status and API key source   |
 
 ---
 
@@ -365,6 +369,31 @@ Manage the user allowlist directly from Discord. This command is only available 
 
 ---
 
+### `/voice` — Manage Voice Transcription
+
+Manage voice message transcription settings. Requires an OpenAI API key (set via CLI).
+
+```
+/voice status               Show voice transcription status
+/voice remove               Remove the stored OpenAI API key
+```
+
+| Parameter | Description |
+| --------- | ----------------------------------------- |
+| (none) | Subcommands only: `status`, `remove` |
+
+**How it works:**
+
+1. Set your OpenAI API key via CLI: `remote-opencode voice set <apiKey>`
+2. Enable passthrough mode in a thread with `/code`
+3. Send a voice message using Discord's 🎤 button
+4. The bot adds a 🎙️ reaction, transcribes the audio via OpenAI Whisper, and processes it as a text prompt
+5. If the bot is busy, voice messages are queued (with 📥 reaction) and transcribed when dequeued
+
+> **Note:** The `set` subcommand is intentionally CLI-only to avoid API key exposure in Discord command history.
+
+---
+
 ## Usage Workflow
 
 ### Basic Workflow
@@ -402,7 +431,7 @@ Perfect for when you're away from your desk:
 4. Watch real-time progress
 5. Use the **Interrupt** button if needed
 
-**Pro tip:** Enable passthrough mode with `/code` in a thread for an even smoother mobile experience — just type messages directly without slash commands!
+**Pro tip:** Enable passthrough mode with `/code` in a thread for an even smoother mobile experience — just type messages directly without slash commands! You can also send **voice messages** via the 🎤 button — they're automatically transcribed and processed as text.
 
 ### Team Collaboration Workflow
 
@@ -509,11 +538,13 @@ All configuration is stored in `~/.remote-opencode/`:
   "discordToken": "your-bot-token",
   "clientId": "your-application-id",
   "guildId": "your-server-id",
-  "allowedUserIds": ["123456789012345678"]
+  "allowedUserIds": ["123456789012345678"],
+  "openaiApiKey": "sk-..."
 }
 ```
 
 > `allowedUserIds` is optional. When omitted or empty, access control is disabled and all users can use the bot.
+> `openaiApiKey` is optional. When omitted, voice message transcription is disabled. Can also be set via `OPENAI_API_KEY` environment variable (takes priority).
 
 ### data.json Structure
 
@@ -638,25 +669,26 @@ src/
 │   ├── work.ts            # Worktree management
 │   ├── diff.ts            # Git diff viewer
 │   ├── allow.ts           # Allowlist management
+│   ├── voice.ts           # Voice transcription settings
 │   ├── setpath.ts         # Project registration
 │   ├── projects.ts        # List projects
 │   └── use.ts             # Channel binding
 ├── handlers/              # Interaction handlers
 │   ├── interactionHandler.ts
 │   ├── buttonHandler.ts
-│   └── messageHandler.ts  # Passthrough message handling
+│   └── messageHandler.ts  # Passthrough + voice message handling
 ├── services/              # Core business logic
 │   ├── serveManager.ts    # OpenCode process management
 │   ├── sessionManager.ts  # Session state management
-│   ├── queueManager.ts    # Automated job queuing
+│   ├── queueManager.ts    # Automated job queuing (incl. voice)
 │   ├── executionService.ts # Core prompt execution logic
+│   ├── voiceService.ts    # Voice message STT (OpenAI Whisper)
 │   ├── sseClient.ts       # Real-time event streaming
-
 │   ├── dataStore.ts       # Persistent storage
 │   ├── configStore.ts     # Bot configuration
 │   └── worktreeManager.ts # Git worktree operations
 ├── setup/                 # Setup wizard
-│   ├── wizard.ts          # Interactive setup
+│   ├── wizard.ts          # Interactive setup (incl. voice opt-in)
 │   └── deploy.ts          # Command deployment
 └── utils/                 # Utilities
     ├── messageFormatter.ts
@@ -668,6 +700,21 @@ src/
 ## Changelog
 
 See [CHANGELOG.md](CHANGELOG.md) for a full history of changes.
+
+### [1.4.0] - 2026-03-10
+
+#### Added
+
+- **Voice Message Transcription**: Send voice messages in `/code` passthrough threads — automatically transcribed via OpenAI Whisper and processed as text prompts.
+- **`/voice` Slash Command**: Check status and manage voice transcription settings from Discord.
+- **CLI Voice Management**: `remote-opencode voice set|remove|status` commands for managing the OpenAI API key.
+- **Setup Wizard Integration**: Optional step to configure voice transcription during initial setup.
+
+### [1.3.0] - 2026-03-02
+
+#### Added
+
+- **`/diff` Command**: View git diffs directly from Discord — ideal for reviewing AI-made changes on mobile.
 
 ### [1.2.0] - 2026-02-15
 
