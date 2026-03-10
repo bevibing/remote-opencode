@@ -11,7 +11,7 @@ import * as sessionManager from './sessionManager.js';
 import * as serveManager from './serveManager.js';
 import * as worktreeManager from './worktreeManager.js';
 import { SSEClient } from './sseClient.js';
-import { formatOutput, buildContextHeader } from '../utils/messageFormatter.js';
+import { formatOutput, formatOutputForMobile, buildContextHeader } from '../utils/messageFormatter.js';
 import { processNextInQueue } from './queueManager.js';
 
 export async function runPrompt(
@@ -166,7 +166,7 @@ export async function runPrompt(
       
       (async () => {
         try {
-          const formatted = formatOutput(accumulatedText);
+          const result = formatOutputForMobile(accumulatedText);
           const disabledButtons = new ActionRowBuilder<ButtonBuilder>()
             .addComponents(
               new ButtonBuilder()
@@ -176,10 +176,16 @@ export async function runPrompt(
                 .setDisabled(true)
             );
           
+          // First chunk goes in the main edited message
           await updateStreamMessage(
-            `${contextHeader}\n📌 **Prompt**: ${prompt}\n\n\`\`\`\n${formatted}\n\`\`\``,
+            `${contextHeader}\n📌 **Prompt**: ${prompt}\n\n${result.chunks[0]}`,
             [disabledButtons]
           );
+          
+          // Send remaining chunks as follow-up messages
+          for (let i = 1; i < result.chunks.length; i++) {
+            await (channel as any).send({ content: result.chunks[i] });
+          }
           
           await (channel as any).send({ content: '✅ Done' });
           
@@ -229,7 +235,7 @@ export async function runPrompt(
         if (newContent !== lastContent || tick % 2 === 0) {
           lastContent = newContent;
           await updateStreamMessage(
-            `${contextHeader}\n📌 **Prompt**: ${prompt}\n\n${spinnerChar} **Running...**\n\`\`\`\n${newContent}\n\`\`\``,
+            `${contextHeader}\n📌 **Prompt**: ${prompt}\n\n${spinnerChar} **Running...**\n${newContent}`,
             [buttons]
           );
         }
