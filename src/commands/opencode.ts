@@ -40,6 +40,8 @@ export const opencode: Command = {
       });
       return;
     }
+
+    await interaction.deferReply();
     
     let thread;
     try {
@@ -49,9 +51,8 @@ export const opencode: Command = {
         thread = await getOrCreateThread(interaction, prompt);
       }
     } catch {
-      await interaction.reply({
+      await interaction.editReply({
         content: '❌ Cannot create thread.',
-        flags: MessageFlags.Ephemeral
       });
       return;
     }
@@ -64,14 +65,13 @@ export const opencode: Command = {
         userId: interaction.user.id,
         timestamp: Date.now()
       });
-      await interaction.reply({
+      await interaction.editReply({
         content: '📥 Prompt added to queue.',
-        flags: MessageFlags.Ephemeral
       });
       return;
     }
 
-    await interaction.reply({
+    await interaction.editReply({
       content: `📌 **Prompt**: ${prompt}`
     });
 

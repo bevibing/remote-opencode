@@ -65,6 +65,7 @@ export const work: Command = {
       return;
     }
 
+    await i.deferReply({ flags: MessageFlags.Ephemeral });
     try {
       const worktreePath = await worktreeManager.createWorktree(projectPath, sanitizedBranch);
 
@@ -113,16 +114,14 @@ export const work: Command = {
         components: [buttons]
       });
 
-      await i.reply({
+      await i.editReply({
         content: `✅ Created worktree **${sanitizedBranch}** -> <#${thread.id}>`,
-        flags: MessageFlags.Ephemeral
       });
 
     } catch (error) {
       console.error('Worktree creation failed:', error);
-      await i.reply({
+      await i.editReply({
         content: `❌ Failed to create worktree: ${(error as Error).message}`,
-        flags: MessageFlags.Ephemeral
       });
     }
   }
