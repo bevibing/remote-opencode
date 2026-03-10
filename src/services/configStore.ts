@@ -17,6 +17,7 @@ export interface AppConfig {
   bot?: BotConfig;
   ports?: PortConfig;
   allowedUserIds?: string[];
+  openaiApiKey?: string;
 }
 
 const CONFIG_DIR = join(homedir(), '.remote-opencode');
@@ -114,4 +115,20 @@ export function isAuthorized(userId: string): boolean {
   const ids = getAllowedUserIds();
   if (ids.length === 0) return true; // no restriction
   return ids.includes(userId);
+}
+
+export function getOpenAIApiKey(): string | undefined {
+  return process.env.OPENAI_API_KEY || loadConfig().openaiApiKey;
+}
+
+export function setOpenAIApiKey(key: string): void {
+  const config = loadConfig();
+  config.openaiApiKey = key;
+  saveConfig(config);
+}
+
+export function removeOpenAIApiKey(): void {
+  const config = loadConfig();
+  delete config.openaiApiKey;
+  saveConfig(config);
 }

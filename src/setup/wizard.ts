@@ -1,7 +1,7 @@
 import * as p from '@clack/prompts';
 import pc from 'picocolors';
 import open from 'open';
-import { setBotConfig, getBotConfig, hasBotConfig, addAllowedUserId } from '../services/configStore.js';
+import { setBotConfig, getBotConfig, hasBotConfig, addAllowedUserId, setOpenAIApiKey } from '../services/configStore.js';
 import { deployCommands } from './deploy.js';
 
 const DISCORD_DEV_URL = 'https://discord.com/developers/applications';
@@ -196,6 +196,36 @@ export async function runSetupWizard(): Promise<void> {
   
   if (ownerId && (ownerId as string).length > 0) {
     addAllowedUserId(ownerId as string);
+  }
+
+  // Step 6 (optional): Voice Message Transcription
+  const enableVoice = await p.confirm({
+    message: 'Would you like to enable Voice Message transcription? (requires OpenAI API key)',
+    initialValue: false,
+  });
+
+  if (p.isCancel(enableVoice)) {
+    p.cancel('Setup cancelled.');
+    process.exit(0);
+  }
+
+  if (enableVoice) {
+    const openaiKey = await p.password({
+      message: 'Enter your OpenAI API key:',
+      validate: (value) => {
+        if (!value) return 'API key is required';
+        if (!value.startsWith('sk-') || value.length < 20) return 'Invalid API key format (must start with sk- and be at least 20 characters)';
+        return undefined;
+      },
+    });
+
+    if (p.isCancel(openaiKey)) {
+      p.cancel('Setup cancelled.');
+      process.exit(0);
+    }
+
+    setOpenAIApiKey(openaiKey as string);
+    p.log.success('OpenAI API key saved. Voice transcription enabled!');
   }
   
   // Step 6: Invite Bot to Server
