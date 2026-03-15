@@ -303,7 +303,7 @@ Control the automated job queue for the current thread.
 /queue clear
 /queue pause
 /queue resume
-/queue settings continue_on_failure:True fresh_context:True
+/queue settings continue_on_failure:True fresh_context:False
 ```
 
 **How it works:**
@@ -315,7 +315,7 @@ Control the automated job queue for the current thread.
 **Settings:**
 
 - `continue_on_failure`: If `True`, the bot moves to the next task even if the current one fails.
-- `fresh_context`: If `True` (default), the AI forgets previous chat history for each new queued task to improve performance, while maintaining the same code state.
+- `fresh_context`: If `True`, the AI forgets previous chat history for each new queued task, starting a fresh session while maintaining the same code state. Default: `False` (conversation context is preserved within the same thread).
 
 ### `/diff` — View Git Diff
 

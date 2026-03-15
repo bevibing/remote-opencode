@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### Fixed
+- **Session Continuity**: Changed `freshContext` default from `true` to `false` so that conversations within the same Discord thread preserve context by default. Previously, each new message started a fresh session, losing conversation history. Users can still opt into fresh context per thread via `/queue settings fresh_context:True`. (Closes #27)
+
 ## [1.4.0] - 2026-03-10
 
 ### Added
