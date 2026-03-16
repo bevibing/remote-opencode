@@ -5,23 +5,38 @@ import {
   MessageFlags,
   ThreadChannel
 } from 'discord.js';
-import { execSync } from 'node:child_process';
+import { execSync, exec } from 'node:child_process';
 import * as dataStore from '../services/dataStore.js';
 import type { Command } from './index.js';
 
 let cachedModels: string[] = [];
 let cacheTimestamp = 0;
+let refreshInFlight = false;
 const CACHE_TTL_MS = 30_000;
+
+function refreshCacheAsync(): void {
+  if (refreshInFlight) return;
+  refreshInFlight = true;
+  exec('opencode models', { encoding: 'utf-8', timeout: 5000 }, (error, stdout) => {
+    refreshInFlight = false;
+    if (!error && stdout) {
+      cachedModels = stdout.split('\n').filter(m => m.trim());
+      cacheTimestamp = Date.now();
+    }
+  });
+}
 
 export function getCachedModels(): string[] {
   const now = Date.now();
   if (now - cacheTimestamp > CACHE_TTL_MS || cachedModels.length === 0) {
-    try {
-      const output = execSync('opencode models', { encoding: 'utf-8', timeout: 2000 });
-      cachedModels = output.split('\n').filter(m => m.trim());
-      cacheTimestamp = now;
-    } catch {
-      // Return stale cache on failure, or empty if no cache exists
+    if (cachedModels.length === 0) {
+      try {
+        const output = execSync('opencode models', { encoding: 'utf-8', timeout: 5000 });
+        cachedModels = output.split('\n').filter(m => m.trim());
+        cacheTimestamp = now;
+      } catch { }
+    } else {
+      refreshCacheAsync();
     }
   }
   return cachedModels;
@@ -149,8 +164,10 @@ export const model: Command = {
       .filter(m => m.toLowerCase().includes(focused))
       .slice(0, 25);
 
-    await interaction.respond(
-      filtered.map(m => ({ name: m, value: m }))
-    );
+    try {
+      await interaction.respond(
+        filtered.map(m => ({ name: m, value: m }))
+      );
+    } catch { }
   }
 };
