@@ -20,7 +20,7 @@ function refreshCacheAsync(): void {
   exec('opencode models', { encoding: 'utf-8', timeout: 5000 }, (error, stdout) => {
     refreshInFlight = false;
     if (!error && stdout) {
-      cachedModels = stdout.split('\n').filter(m => m.trim());
+      cachedModels = stdout.split('\n').filter(m => m.trim()).map(m => m.startsWith('google/') ? m.substring(7) : m);
       cacheTimestamp = Date.now();
     }
   });
@@ -84,7 +84,7 @@ export const model: Command = {
 
         // Group models by provider
         const groups: Record<string, string[]> = {};
-        for (const m of models) {
+        for (const m of models.map(m => m.startsWith('google/') ? m.substring(7) : m)) {
           const [provider] = m.split('/');
           if (!groups[provider]) groups[provider] = [];
           groups[provider].push(m);
@@ -138,7 +138,7 @@ export const model: Command = {
 
       try {
         const availableModels = getCachedModels();
-        if (availableModels.length > 0 && !availableModels.includes(modelName)) {
+        if (availableModels.length > 0 && !availableModels.map(m => m.startsWith('google/') ? m.substring(7) : m).includes(modelName)) {
           await interaction.editReply(
             `❌ Model \`${modelName}\` not found.\nUse \`/model list\` to see available models.`
           );
@@ -158,7 +158,7 @@ export const model: Command = {
 
   async autocomplete(interaction: AutocompleteInteraction) {
     const focused = interaction.options.getFocused().toLowerCase();
-    const models = getCachedModels();
+    const models = getCachedModels().map(m => m.startsWith('google/') ? m.substring(7) : m);
 
     const filtered = models
       .filter(m => m.toLowerCase().includes(focused))

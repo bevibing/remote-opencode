@@ -37,14 +37,14 @@ function parseModelString(model: string): { providerID: string; modelID: string 
 
 export async function sendPrompt(port: number, sessionId: string, text: string, model?: string): Promise<void> {
   const url = `http://127.0.0.1:${port}/session/${sessionId}/prompt_async`;
-  const body: { parts: { type: string; text: string }[]; model?: { providerID: string; modelID: string } } = {
+  const body: { parts: { type: string; text: string }[]; model?: { providerID?: string; modelID: string } } = {
     parts: [{ type: 'text', text }],
   };
   
   if (model) {
     const parsedModel = parseModelString(model);
     if (parsedModel) {
-      body.model = parsedModel;
+      body.model = { modelID: parsedModel.modelID };
     }
   }
   
