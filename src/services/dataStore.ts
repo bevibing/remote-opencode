@@ -2,6 +2,7 @@ import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
 import type { DataStore, ProjectConfig, ChannelBinding, ThreadSession, WorktreeMapping, PassthroughThread, QueuedMessage, QueueSettings } from '../types/index.js';
+import { sanitizeModel } from '../utils/stringUtils.js';
 
 
 const CONFIG_DIR = join(homedir(), '.remote-opencode');
@@ -78,7 +79,7 @@ export function setChannelModel(channelId: string, model: string): boolean {
   const data = loadData();
   const existing = data.bindings.findIndex(b => b.channelId === channelId);
   if (existing >= 0) {
-    data.bindings[existing].model = model;
+    data.bindings[existing].model = sanitizeModel(model);
     saveData(data);
     return true;
   }
@@ -87,7 +88,7 @@ export function setChannelModel(channelId: string, model: string): boolean {
 
 export function getChannelModel(channelId: string): string | undefined {
   const binding = loadData().bindings.find(b => b.channelId === channelId);
-  return binding?.model;
+  return sanitizeModel(binding?.model ?? '');
 }
 
 export function getChannelBinding(channelId: string): string | undefined {

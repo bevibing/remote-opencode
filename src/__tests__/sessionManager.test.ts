@@ -112,10 +112,11 @@ describe('SessionManager', () => {
         ok: false,
         status: 404,
         statusText: 'Not Found',
+        text: async () => 'Not Found',
       });
 
       await expect(sendPrompt(3000, 'ses_invalid', 'test')).rejects.toThrow(
-        'Failed to send prompt: 404 Not Found'
+        'Failed to send prompt: 404 Not Found — Not Found'
       );
     });
   });

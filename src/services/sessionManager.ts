@@ -1,5 +1,6 @@
 import type { SSEClient } from './sseClient.js';
 import * as dataStore from './dataStore.js';
+import { sanitizeModel } from '../utils/stringUtils.js';
 
 const threadSseClients = new Map<string, SSEClient>();
 
@@ -25,13 +26,14 @@ export async function createSession(port: number): Promise<string> {
 }
 
 function parseModelString(model: string): { providerID: string; modelID: string } | null {
-  const slashIndex = model.indexOf('/');
+  const clean = sanitizeModel(model);
+  const slashIndex = clean.indexOf('/');
   if (slashIndex === -1) {
     return null;
   }
   return {
-    providerID: model.slice(0, slashIndex),
-    modelID: model.slice(slashIndex + 1),
+    providerID: clean.slice(0, slashIndex),
+    modelID: clean.slice(slashIndex + 1),
   };
 }
 
@@ -40,14 +42,15 @@ export async function sendPrompt(port: number, sessionId: string, text: string, 
   const body: { parts: { type: string; text: string }[]; model?: { providerID: string; modelID: string } } = {
     parts: [{ type: 'text', text }],
   };
-  
+
   if (model) {
-    const parsedModel = parseModelString(model);
+    const cleanModel = sanitizeModel(model);
+    const parsedModel = parseModelString(cleanModel);
     if (parsedModel) {
       body.model = parsedModel;
     }
   }
-  
+
   const response = await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -55,7 +58,8 @@ export async function sendPrompt(port: number, sessionId: string, text: string, 
   });
 
   if (!response.ok) {
-    throw new Error(`Failed to send prompt: ${response.status} ${response.statusText}`);
+    const responseBody = await response.text();
+    throw new Error(`Failed to send prompt: ${response.status} ${response.statusText} — ${responseBody}`);
   }
 }
 

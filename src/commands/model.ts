@@ -8,6 +8,7 @@ import {
 import { execSync, exec } from 'node:child_process';
 import * as dataStore from '../services/dataStore.js';
 import type { Command } from './index.js';
+import { sanitizeModel } from '../utils/stringUtils.js';
 
 let cachedModels: string[] = [];
 let cacheTimestamp = 0;
@@ -20,7 +21,7 @@ function refreshCacheAsync(): void {
   exec('opencode models', { encoding: 'utf-8', timeout: 5000 }, (error, stdout) => {
     refreshInFlight = false;
     if (!error && stdout) {
-      cachedModels = stdout.split('\n').filter(m => m.trim());
+      cachedModels = stdout.split('\n').map(sanitizeModel).filter(m => m);
       cacheTimestamp = Date.now();
     }
   });
@@ -32,7 +33,7 @@ export function getCachedModels(): string[] {
     if (cachedModels.length === 0) {
       try {
         const output = execSync('opencode models', { encoding: 'utf-8', timeout: 5000 });
-        cachedModels = output.split('\n').filter(m => m.trim());
+        cachedModels = output.split('\n').map(sanitizeModel).filter(m => m);
         cacheTimestamp = now;
       } catch { }
     } else {
@@ -75,7 +76,7 @@ export const model: Command = {
       await interaction.deferReply({ flags: MessageFlags.Ephemeral });
       try {
         const output = execSync('opencode models', { encoding: 'utf-8' });
-        const models = output.split('\n').filter(m => m.trim());
+        const models = output.split('\n').map(sanitizeModel).filter(m => m);
         
         if (models.length === 0) {
           await interaction.editReply('No models found.');
