@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### Added
+- Proxy support for Discord and other external HTTP requests via `HTTP_PROXY`, `HTTPS_PROXY`, `ALL_PROXY`, and `NO_PROXY`.
+
+### Fixed
+- Automatic proxy bypass for local `opencode serve` traffic on `localhost`, `127.0.0.1`, and `::1`, preventing remote-control flows from breaking behind a proxy.
+
 ## [1.5.0] - 2026-03-16
 
 ### Added

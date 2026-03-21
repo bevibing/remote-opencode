@@ -57,6 +57,7 @@ https://github.com/user-attachments/assets/59cf162a-ec86-41b5-a1f3-9b1379acd9fd
 
 - [Installation](#installation)
 - [Quick Start](#quick-start)
+- [Proxy Support](#proxy-support)
 - [Discord Bot Setup](#discord-bot-setup)
 - [CLI Commands](#cli-commands)
 - [Discord Slash Commands](#discord-slash-commands)
@@ -111,6 +112,36 @@ remote-opencode start
 ```
 
 That's it! Now use Discord slash commands to interact with OpenCode.
+
+---
+
+## Proxy Support
+
+`remote-opencode` supports HTTP proxy environments for Discord and other external API requests.
+
+Supported environment variables:
+
+- `HTTP_PROXY`
+- `HTTPS_PROXY`
+- `ALL_PROXY`
+- `NO_PROXY`
+
+Proxy settings are applied app-wide. Local OpenCode traffic is kept direct automatically, so `localhost`, `127.0.0.1`, and `::1` are always excluded from proxying.
+
+### Example
+
+```bash
+export HTTPS_PROXY=http://proxy.company.local:8080
+export NO_PROXY=internal.company.local
+remote-opencode start
+```
+
+If your network uses a single proxy for everything, `ALL_PROXY` is also supported:
+
+```bash
+export ALL_PROXY=http://proxy.company.local:8080
+remote-opencode start
+```
 
 ---
 
@@ -697,6 +728,12 @@ The bot maintains persistent sessions. If you encounter issues:
    ```bash
    remote-opencode setup
    ```
+
+### Proxy environments still fail
+
+1. Confirm `HTTP_PROXY`, `HTTPS_PROXY`, or `ALL_PROXY` is set in the same shell where you start the bot
+2. Check whether a custom `NO_PROXY` value is excluding a required remote host
+3. Leave loopback traffic direct; the bot already auto-adds `localhost`, `127.0.0.1`, and `::1`
 
 ---
 

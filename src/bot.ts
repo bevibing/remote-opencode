@@ -4,6 +4,7 @@ import { getBotConfig } from './services/configStore.js';
 import { handleInteraction } from './handlers/interactionHandler.js';
 import { handleMessageCreate } from './handlers/messageHandler.js';
 import * as serveManager from './services/serveManager.js';
+import { initializeProxySupport } from './services/proxySupport.js';
 import { getCachedModels } from './commands/model.js';
 
 export async function startBot(): Promise<void> {
@@ -45,6 +46,7 @@ export async function startBot(): Promise<void> {
   process.on('SIGINT', () => gracefulShutdown('SIGINT'));
   process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
   
+  initializeProxySupport();
   console.log(pc.dim('Connecting to Discord...'));
   await client.login(config.discordToken);
 }

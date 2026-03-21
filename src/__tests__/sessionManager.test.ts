@@ -1,4 +1,32 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+const dataStoreMock = vi.hoisted(() => {
+  const threadSessions = new Map<string, { threadId: string; sessionId: string; projectPath: string; port: number; createdAt: number; lastUsedAt: number }>();
+
+  return {
+    reset: () => threadSessions.clear(),
+    getThreadSession: vi.fn((threadId: string) => threadSessions.get(threadId)),
+    setThreadSession: vi.fn((session: { threadId: string; sessionId: string; projectPath: string; port: number; createdAt: number; lastUsedAt: number }) => {
+      threadSessions.set(session.threadId, session);
+    }),
+    updateThreadSessionLastUsed: vi.fn((threadId: string) => {
+      const session = threadSessions.get(threadId);
+      if (session) {
+        session.lastUsedAt = Date.now();
+      }
+    }),
+    clearThreadSession: vi.fn((threadId: string) => {
+      threadSessions.delete(threadId);
+    }),
+  };
+});
+
+vi.mock('../services/dataStore.js', () => ({
+  getThreadSession: dataStoreMock.getThreadSession,
+  setThreadSession: dataStoreMock.setThreadSession,
+  updateThreadSessionLastUsed: dataStoreMock.updateThreadSessionLastUsed,
+  clearThreadSession: dataStoreMock.clearThreadSession,
+}));
+
 import {
   createSession,
   sendPrompt,
@@ -17,6 +45,8 @@ describe('SessionManager', () => {
   beforeEach(() => {
     vi.stubGlobal('fetch', mockFetch);
     mockFetch.mockReset();
+    dataStoreMock.reset();
+    vi.clearAllMocks();
   });
 
   afterEach(() => {
