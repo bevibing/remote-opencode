@@ -112,10 +112,23 @@ export async function runPrompt(
   let hasSessionError = false;
   const spinner = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
   
-  const updateStreamMessage = async (content: string, components: ActionRowBuilder<ButtonBuilder>[]) => {
+  const updateStreamMessage = async (content: string, components: ActionRowBuilder<ButtonBuilder>[]): Promise<boolean> => {
     try {
       await streamMessage.edit({ content, components });
-    } catch {
+      return true;
+    } catch (error) {
+      console.error('Failed to edit stream message:', error instanceof Error ? error.message : error);
+      return false;
+    }
+  };
+
+  const safeSend = async (content: string): Promise<boolean> => {
+    try {
+      await (channel as any).send({ content });
+      return true;
+    } catch (error) {
+      console.error('Failed to send message:', error instanceof Error ? error.message : error);
+      return false;
     }
   };
   
@@ -183,24 +196,29 @@ export async function runPrompt(
             );
 
           if (!accumulatedText.trim()) {
-            await updateStreamMessage(
+            const edited = await updateStreamMessage(
               `${contextHeader}\n📌 **Prompt**: ${prompt}\n\n⚠️ No output received — the model may have encountered an issue.`,
               [disabledButtons]
             );
-            await (channel as any).send({ content: '⚠️ Done (no output received)' });
+            if (!edited) {
+              await safeSend('⚠️ No output received — the model may have encountered an issue.');
+            }
+            await safeSend('⚠️ Done (no output received)');
           } else {
             const result = formatOutputForMobile(accumulatedText);
             
-            await updateStreamMessage(
+            const editSuccess = await updateStreamMessage(
               `${contextHeader}\n📌 **Prompt**: ${prompt}\n\n${result.chunks[0]}`,
               [disabledButtons]
             );
             
-            for (let i = 1; i < result.chunks.length; i++) {
-              await (channel as any).send({ content: result.chunks[i] });
+            // If edit failed (e.g., content exceeds Discord's 2000-char limit), send all chunks as new messages
+            const startIndex = editSuccess ? 1 : 0;
+            for (let i = startIndex; i < result.chunks.length; i++) {
+              await safeSend(result.chunks[i]);
             }
             
-            await (channel as any).send({ content: '✅ Done' });
+            await safeSend('✅ Done');
           }
           
           sseClient.disconnect();
@@ -209,6 +227,7 @@ export async function runPrompt(
           await processNextInQueue(channel, threadId, parentChannelId);
         } catch (error) {
           console.error('Error in onSessionIdle:', error);
+          await safeSend('❌ An unexpected error occurred while processing the response.');
         }
       })();
     });
@@ -236,10 +255,13 @@ export async function runPrompt(
                 .setDisabled(true)
             );
           
-          await updateStreamMessage(
+          const edited = await updateStreamMessage(
             `${contextHeader}\n📌 **Prompt**: ${prompt}\n\n❌ **Error**: ${errorMsg}`,
             [disabledButtons]
           );
+          if (!edited) {
+            await safeSend(`❌ **Error**: ${errorMsg}`);
+          }
           
           sseClient.disconnect();
           sessionManager.clearSseClient(threadId);
@@ -249,10 +271,11 @@ export async function runPrompt(
             await processNextInQueue(channel, threadId, parentChannelId);
           } else {
             dataStore.clearQueue(threadId);
-            await (channel as any).send('❌ Execution failed. Queue cleared. Use `/queue settings` to change this behavior.');
+            await safeSend('❌ Execution failed. Queue cleared. Use `/queue settings` to change this behavior.');
           }
         } catch (error) {
           console.error('Error in onSessionError:', error);
+          await safeSend('❌ An unexpected error occurred while handling a session error.');
         }
       })();
     });
@@ -265,7 +288,10 @@ export async function runPrompt(
       
       (async () => {
         try {
-          await updateStreamMessage(`${contextHeader}\n📌 **Prompt**: ${prompt}\n\n❌ Connection error: ${error.message}`, []);
+          const edited = await updateStreamMessage(`${contextHeader}\n📌 **Prompt**: ${prompt}\n\n❌ Connection error: ${error.message}`, []);
+          if (!edited) {
+            await safeSend(`❌ Connection error: ${error.message}`);
+          }
           
           sseClient.disconnect();
           sessionManager.clearSseClient(threadId);
@@ -275,9 +301,11 @@ export async function runPrompt(
             await processNextInQueue(channel, threadId, parentChannelId);
           } else {
             dataStore.clearQueue(threadId);
-            await (channel as any).send('❌ Execution failed. Queue cleared. Use `/queue settings` to change this behavior.');
+            await safeSend('❌ Execution failed. Queue cleared. Use `/queue settings` to change this behavior.');
           }
-        } catch {
+        } catch (handlerError) {
+          console.error('Error in SSE onError handler:', handlerError);
+          await safeSend('❌ An unexpected connection error occurred.');
         }
       })();
     });
@@ -296,7 +324,8 @@ export async function runPrompt(
             [buttons]
           );
         }
-      } catch {
+      } catch (error) {
+        console.error('Error in stream update interval:', error instanceof Error ? error.message : error);
       }
     }, 1000);
     
@@ -310,7 +339,10 @@ export async function runPrompt(
     }
     
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-    await updateStreamMessage(`${contextHeader}\n📌 **Prompt**: ${prompt}\n\n❌ OpenCode execution failed: ${errorMessage}`, []);
+    const edited = await updateStreamMessage(`${contextHeader}\n📌 **Prompt**: ${prompt}\n\n❌ OpenCode execution failed: ${errorMessage}`, []);
+    if (!edited) {
+      await safeSend(`❌ OpenCode execution failed: ${errorMessage}`);
+    }
     
     const client = sessionManager.getSseClient(threadId);
     if (client) {
@@ -323,7 +355,7 @@ export async function runPrompt(
       await processNextInQueue(channel, threadId, parentChannelId);
     } else {
       dataStore.clearQueue(threadId);
-      await (channel as any).send('❌ Execution failed. Queue cleared.');
+      await safeSend('❌ Execution failed. Queue cleared.');
     }
   }
 }
