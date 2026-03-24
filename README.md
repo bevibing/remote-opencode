@@ -800,6 +800,18 @@ src/
 
 See [CHANGELOG.md](CHANGELOG.md) for a full history of changes.
 
+### [1.5.1] - 2026-03-24
+
+#### Added
+
+- **Proxy Support**: HTTP proxy environments for Discord requests via `HTTP_PROXY`, `HTTPS_PROXY`, `ALL_PROXY`, and `NO_PROXY`. Local OpenCode traffic is automatically excluded.
+
+#### Fixed
+
+- **Shell Spawn Removed**: OpenCode is now launched directly instead of through a shell, fixing service-environment failures.
+- **Silent Error Swallowing**: Discord message edit failures now fall back to sending new messages instead of silently dropping AI responses.
+- **Model Provider Prefix**: `/model set` no longer strips the provider prefix, fixing "Model not found" errors. Carriage returns in model names are now sanitized.
+
 ### [1.5.0] - 2026-03-16
 
 #### Added

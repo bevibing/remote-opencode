@@ -4,11 +4,19 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [1.5.1] - 2026-03-24
+
 ### Added
-- Proxy support for Discord and other external HTTP requests via `HTTP_PROXY`, `HTTPS_PROXY`, `ALL_PROXY`, and `NO_PROXY`.
+- **Proxy Support**: HTTP proxy environments are now supported for Discord and other external API requests via `HTTP_PROXY`, `HTTPS_PROXY`, `ALL_PROXY`, and `NO_PROXY` environment variables. Local `opencode serve` traffic on `localhost`, `127.0.0.1`, and `::1` is automatically excluded from proxying.
 
 ### Fixed
-- Automatic proxy bypass for local `opencode serve` traffic on `localhost`, `127.0.0.1`, and `::1`, preventing remote-control flows from breaking behind a proxy.
+- **Shell Spawn Removed** (PR #42): OpenCode is now launched directly instead of through a shell, fixing service-environment failures. Session recovery consolidated so stale runtime sessions are recreated without resetting stored thread metadata.
+- **Silent Error Swallowing** (PR #36, closes #32): Errors in `updateStreamMessage` (Discord message edits) were silently caught, causing AI responses to appear lost while "Done" still displayed. All edit failures now fall back to sending new messages, ensuring users always see output or error details.
+- **Model Provider Prefix** (PR #35): `/model set` no longer strips the provider prefix (e.g., `opencode/minimax-m2.5-free`), which previously caused "Model not found" errors. Carriage returns (`\r`) in model names are now sanitized consistently across storage and prompt submission.
+- **Duplicate README Content** (PR #41): Removed duplicate lines in the README.
+
+### Changed
+- **Mermaid Diagram**: Replaced the ASCII "How It Works" diagram with a Mermaid flowchart for better rendering on GitHub.
 
 ## [1.5.0] - 2026-03-16
 
