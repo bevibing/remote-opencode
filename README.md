@@ -2,7 +2,7 @@
 
 > Control your AI coding assistant from anywhere — your phone, tablet, or another computer.
 
-![npm](https://img.shields.io/npm/dt/remote-opencode) 📦 Used by developers worldwide — **1000+ weekly downloads** on npm
+![npm](https://img.shields.io/npm/dt/remote-opencode) 📦 Used by developers worldwide — **2,000+ weekly downloads** on npm
 
 <div align="center">
 <img width="1024" alt="remote-opencode logo" src="./asset/remo-code-logo.png" />
