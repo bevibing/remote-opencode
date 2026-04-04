@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [1.5.2] - 2026-04-05
+
+### Added
+- **`remote-opencode undeploy` CLI Command** (PR #48): Added a new CLI command to remove the bot's slash commands from the configured Discord guild. This makes it easier to cleanly unregister commands during teardown, testing, or bot reconfiguration.
+
 ## [1.5.1] - 2026-03-24
 
 ### Added
