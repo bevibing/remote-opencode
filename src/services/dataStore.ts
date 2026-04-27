@@ -244,6 +244,20 @@ export function getProjectAutoWorktree(alias: string): boolean {
   return project?.autoWorktree ?? false;
 }
 
+export function setProjectAutoPassthrough(alias: string, enabled: boolean): boolean {
+  const data = loadData();
+  const project = data.projects.find(p => p.alias === alias);
+  if (!project) return false;
+  project.autoPassthrough = enabled;
+  saveData(data);
+  return true;
+}
+
+export function getProjectAutoPassthrough(alias: string): boolean {
+  const project = getProject(alias);
+  return project?.autoPassthrough ?? false;
+}
+
 // Queue Management
 export function getQueue(threadId: string): QueuedMessage[] {
   const data = loadData();
