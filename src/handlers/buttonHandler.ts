@@ -37,13 +37,13 @@ async function handleForceKill(interaction: ButtonInteraction, threadId: string)
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
   const result = await sessionManager.forceKillThread(threadId, { nuclear: false });
 
-  if (!result.hadSession && !result.sseDisconnected) {
+  if (!result.hadSession) {
     await interaction.editReply({ content: 'ℹ️ No active session — nothing to kill.' });
     return;
   }
 
   await interaction.editReply({
-    content: `🔪 Force kill complete — HTTP abort: ${result.httpAborted ? '✅' : '❌'}, stream closed: ${result.sseDisconnected ? '✅' : '—'}, session cleared: ${result.sessionCleared ? '✅' : '—'}.`
+    content: `🔪 Force kill complete — HTTP abort: ${result.httpAborted ? '✅' : '❌'}, stream closed: ${result.sseDisconnected ? '✅' : '—'}, session cleared: ${result.sessionCleared ? '✅' : '—'}. Run \`/kill nuclear:true\` if serve itself is wedged.`
   });
 }
 

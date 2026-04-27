@@ -110,6 +110,7 @@ export async function runPrompt(
   let tick = 0;
   let promptSent = false;
   let hasSessionError = false;
+  let killed = false;
   let lastSseEventAt = Date.now();
   const stallTimeoutMs = Number(process.env.OPENCODE_STALL_TIMEOUT_MS) || 90_000;
   const spinner = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
@@ -173,14 +174,16 @@ export async function runPrompt(
     });
 
     sseClient.onSessionIdle((idleSessionId) => {
-      lastSseEventAt = Date.now();
       if (idleSessionId !== sessionId) return;
+      lastSseEventAt = Date.now();
       if (!promptSent) return;
-      
+      if (killed) return;
+
       if (updateInterval) {
         clearInterval(updateInterval);
         updateInterval = null;
       }
+      sessionManager.clearRunCleanup(threadId);
       
       (async () => {
         try {
@@ -237,16 +240,18 @@ export async function runPrompt(
     });
     
     sseClient.onSessionError((errorSessionId, errorInfo) => {
-      lastSseEventAt = Date.now();
       if (errorSessionId !== sessionId) return;
+      lastSseEventAt = Date.now();
       if (!promptSent) return;
-      
+      if (killed) return;
+
       hasSessionError = true;
-      
+
       if (updateInterval) {
         clearInterval(updateInterval);
         updateInterval = null;
       }
+      sessionManager.clearRunCleanup(threadId);
       
       (async () => {
         try {
@@ -287,10 +292,12 @@ export async function runPrompt(
     
     sseClient.onError((error) => {
       lastSseEventAt = Date.now();
+      if (killed) return;
       if (updateInterval) {
         clearInterval(updateInterval);
         updateInterval = null;
       }
+      sessionManager.clearRunCleanup(threadId);
       
       (async () => {
         try {
@@ -319,6 +326,7 @@ export async function runPrompt(
     updateInterval = setInterval(async () => {
       tick++;
       try {
+        if (killed) return;
         const formatted = formatOutput(accumulatedText);
         const spinnerChar = spinner[tick % spinner.length];
         const stalledMs = Date.now() - lastSseEventAt;
@@ -343,15 +351,24 @@ export async function runPrompt(
         console.error('Error in stream update interval:', error instanceof Error ? error.message : error);
       }
     }, 1000);
-    
+
+    sessionManager.setRunCleanup(threadId, () => {
+      killed = true;
+      if (updateInterval) {
+        clearInterval(updateInterval);
+        updateInterval = null;
+      }
+    });
+
     await updateStreamMessage(`${contextHeader}\n📌 **Prompt**: ${prompt}\n\n📝 Sending prompt...`, [buttons]);
     await sessionManager.sendPrompt(port, sessionId, prompt, preferredModel);
     promptSent = true;
-    
+
   } catch (error) {
     if (updateInterval) {
       clearInterval(updateInterval);
     }
+    sessionManager.clearRunCleanup(threadId);
     
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
     const edited = await updateStreamMessage(`${contextHeader}\n📌 **Prompt**: ${prompt}\n\n❌ OpenCode execution failed: ${errorMessage}`, []);

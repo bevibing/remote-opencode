@@ -5,6 +5,7 @@ import { sanitizeModel } from "../utils/stringUtils.js";
 import { getAuthHeaders, assertNotAuthError } from "./serverAuth.js";
 
 const threadSseClients = new Map<string, SSEClient>();
+const threadRunCleanups = new Map<string, () => void>();
 
 function jsonHeaders(): Record<string, string> {
   return { "Content-Type": "application/json", ...getAuthHeaders() };
@@ -258,12 +259,28 @@ export function clearSseClient(threadId: string): void {
   threadSseClients.delete(threadId);
 }
 
+export function setRunCleanup(threadId: string, cleanup: () => void): void {
+  threadRunCleanups.set(threadId, cleanup);
+}
+
+export function clearRunCleanup(threadId: string): void {
+  threadRunCleanups.delete(threadId);
+}
+
+function runCleanup(threadId: string): boolean {
+  const fn = threadRunCleanups.get(threadId);
+  if (!fn) return false;
+  threadRunCleanups.delete(threadId);
+  try { fn(); } catch { /* ignore */ }
+  return true;
+}
+
 export interface ForceKillResult {
   hadSession: boolean;
   httpAborted: boolean;
   sseDisconnected: boolean;
   sessionCleared: boolean;
-  serveRestarted: boolean;
+  serveKilled: boolean;
   affectedThreads: string[];
 }
 
@@ -276,7 +293,7 @@ export async function forceKillThread(
     httpAborted: false,
     sseDisconnected: false,
     sessionCleared: false,
-    serveRestarted: false,
+    serveKilled: false,
     affectedThreads: [],
   };
 
@@ -294,6 +311,11 @@ export async function forceKillThread(
     result.sseDisconnected = true;
   }
 
+  // Stops the runPrompt update interval that would otherwise edit the
+  // stream message every second forever (the SSE idle/error events that
+  // normally clear it never fire after disconnect).
+  runCleanup(threadId);
+
   if (session) {
     clearSessionForThread(threadId);
     result.sessionCleared = true;
@@ -309,14 +331,16 @@ export async function forceKillThread(
 
     const killed = await serveManager.killServeByPort(session.port);
     if (killed) {
-      result.serveRestarted = true;
+      result.serveKilled = true;
       for (const sibId of siblingThreadIds) {
         const sib = getSseClient(sibId);
         if (sib) {
           try { sib.disconnect(); } catch { /* ignore */ }
           clearSseClient(sibId);
         }
+        runCleanup(sibId);
         clearSessionForThread(sibId);
+        dataStore.clearQueue(sibId);
       }
       result.affectedThreads = siblingThreadIds;
     }

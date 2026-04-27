@@ -32,7 +32,7 @@ export const kill: Command = {
 
     const result = await sessionManager.forceKillThread(channel.id, { nuclear });
 
-    if (!result.hadSession && !result.sseDisconnected) {
+    if (!result.hadSession) {
       await interaction.editReply({
         content: 'ℹ️ No active session in this thread — nothing to kill.',
       });
@@ -48,11 +48,13 @@ export const kill: Command = {
     ];
 
     if (nuclear) {
-      lines.push(`• Serve subprocess restarted: ${result.serveRestarted ? '✅' : '❌'}`);
+      lines.push(`• Serve subprocess killed: ${result.serveKilled ? '✅ (next prompt spawns a fresh one)' : '❌'}`);
       if (result.affectedThreads.length > 0) {
         const mentions = result.affectedThreads.map(id => `<#${id}>`).join(', ');
         lines.push(`• Sibling threads also reset: ${mentions}`);
       }
+    } else {
+      lines.push('', '_If the OpenCode serve subprocess itself is wedged, run `/kill nuclear:true` to also kill it._');
     }
 
     lines.push('', 'Send a new message or `/opencode` to start fresh.');

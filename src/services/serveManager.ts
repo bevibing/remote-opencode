@@ -351,7 +351,14 @@ export async function killServeByPort(port: number): Promise<boolean> {
   instance.exited = true;
   instances.delete(foundKey);
 
-  proc.kill('SIGTERM');
+  if (proc.exitCode !== null || proc.killed) {
+    return true;
+  }
+
+  try {
+    proc.kill('SIGTERM');
+  } catch { /* already dead — fall through */ }
+
   await new Promise<void>((resolve) => {
     const timer = setTimeout(() => {
       try { proc.kill('SIGKILL'); } catch { /* ignore */ }
