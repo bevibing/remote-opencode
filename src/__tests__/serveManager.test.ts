@@ -38,6 +38,8 @@ const createMockProcess = (): ChildProcess => {
     value: Math.floor(Math.random() * 10000),
     writable: true,
   });
+  Object.defineProperty(proc, 'exitCode', { value: null, writable: true });
+  Object.defineProperty(proc, 'killed', { value: false, writable: true });
   proc.kill = vi.fn().mockReturnValue(true);
   proc.stdout = new EventEmitter() as any;
   proc.stderr = new EventEmitter() as any;
@@ -451,6 +453,74 @@ describe("serveManager", () => {
 
         vi.useFakeTimers();
       });
+    });
+  });
+
+  describe('killServeByPort', () => {
+    it('returns false when no instance matches the port', async () => {
+      const result = await serveManager.killServeByPort(99999);
+      expect(result).toBe(false);
+    });
+
+    it('SIGTERMs the process and resolves on exit', async () => {
+      const mockProc = createMockProcess();
+      vi.mocked(spawn).mockReturnValue(mockProc);
+      const port = await serveManager.spawnServe('/test/kill-graceful');
+
+      const killPromise = serveManager.killServeByPort(port);
+      mockProc.emit('exit', 0, null);
+
+      const result = await killPromise;
+
+      expect(result).toBe(true);
+      expect(mockProc.kill).toHaveBeenCalledWith('SIGTERM');
+    });
+
+    it('falls back to SIGKILL after 2 seconds if process does not exit', async () => {
+      const mockProc = createMockProcess();
+      vi.mocked(spawn).mockReturnValue(mockProc);
+      const port = await serveManager.spawnServe('/test/kill-stubborn');
+
+      vi.useFakeTimers();
+      const killPromise = serveManager.killServeByPort(port);
+      await vi.advanceTimersByTimeAsync(2100);
+      const result = await killPromise;
+      vi.useRealTimers();
+
+      expect(result).toBe(true);
+      expect(mockProc.kill).toHaveBeenNthCalledWith(1, 'SIGTERM');
+      expect(mockProc.kill).toHaveBeenNthCalledWith(2, 'SIGKILL');
+    });
+
+    it('short-circuits on already-exited process (no SIGTERM, no 2s wait)', async () => {
+      const mockProc = createMockProcess();
+      vi.mocked(spawn).mockReturnValue(mockProc);
+      const port = await serveManager.spawnServe('/test/kill-already-dead');
+
+      Object.defineProperty(mockProc, 'exitCode', { value: 0, writable: true });
+
+      const result = await serveManager.killServeByPort(port);
+
+      expect(result).toBe(true);
+      expect(mockProc.kill).not.toHaveBeenCalled();
+    });
+
+    it('survives SIGTERM throwing ESRCH (race-exit)', async () => {
+      const mockProc = createMockProcess();
+      vi.mocked(spawn).mockReturnValue(mockProc);
+      const port = await serveManager.spawnServe('/test/kill-race');
+
+      vi.mocked(mockProc.kill).mockImplementationOnce(() => {
+        const err = new Error('ESRCH') as NodeJS.ErrnoException;
+        err.code = 'ESRCH';
+        throw err;
+      });
+
+      const killPromise = serveManager.killServeByPort(port);
+      mockProc.emit('exit', 0, null);
+
+      const result = await killPromise;
+      expect(result).toBe(true);
     });
   });
 });
