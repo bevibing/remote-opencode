@@ -41,7 +41,7 @@ function resolveCommandFromPath(
   return undefined;
 }
 
-function resolveOpencodeCommand(env: NodeJS.ProcessEnv): string {
+export function resolveOpencodeCommand(env: NodeJS.ProcessEnv = process.env): string {
   const pathValue = env.PATH ?? env.Path;
 
   for (const command of getOpencodeCommandCandidates()) {
