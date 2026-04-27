@@ -343,6 +343,31 @@ Enable automatic passthrough mode for a project. When enabled, every new thread 
 - 🧵 **Thread-scoped** — each new thread starts with passthrough enabled; `/code` still toggles it within a thread
 - ⚡ **Per-project setting** — enable/disable independently for each project
 
+### `/kill` — Force-kill a Stuck Session
+
+Escape hatch for threads where `/interrupt` doesn't respond. Run inside the thread.
+
+```
+/kill
+/kill nuclear:true
+```
+
+| Parameter  | Description                                                                                  |
+| ---------- | -------------------------------------------------------------------------------------------- |
+| `nuclear`  | Optional. Also kill the underlying `opencode serve` subprocess (resets sibling threads too). |
+
+**What it does:**
+
+1. HTTP-aborts the current session (with a 3s timeout so it can't hang)
+2. Force-closes the SSE stream and stops the running update interval
+3. Clears the thread's session and queue
+4. With `nuclear:true`: kills the OpenCode `serve` subprocess via `SIGTERM` → `SIGKILL` after 2s, and resets every other thread on the same project
+
+**Stall watchdog (automatic):**
+
+- If the OpenCode session emits no events for 90 seconds (configurable via `OPENCODE_STALL_TIMEOUT_MS`), the running message switches to `⚠️ Stalled — no events for Ns` and a 🔪 **Force Kill** button appears next to ⏸️ Interrupt.
+- The bot never auto-kills — long-running tool calls (slow grep, big build) shouldn't be cut off without your say-so.
+
 ### `/queue` — Manage Message Queue
 
 Control the automated job queue for the current thread.
