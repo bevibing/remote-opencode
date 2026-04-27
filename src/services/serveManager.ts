@@ -1,6 +1,7 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { existsSync } from "node:fs";
 import { Server } from "node:net";
+import { homedir } from "node:os";
 import { delimiter, join } from "node:path";
 import type { ServeInstance } from "../types/index.js";
 import { getPortConfig } from "./configStore.js";
@@ -41,17 +42,45 @@ function resolveCommandFromPath(
   return undefined;
 }
 
-export function resolveOpencodeCommand(env: NodeJS.ProcessEnv = process.env): string {
-  const pathValue = env.PATH ?? env.Path;
+function getFallbackInstallDirs(): string[] {
+  // Standard install locations the official opencode installer / popular package
+  // managers drop the binary into. Used as a last resort when PATH lookup fails
+  // (e.g. the bot was launched from a non-interactive shell that didn't source
+  // ~/.zshrc, where the installer adds ~/.opencode/bin).
+  const home = homedir();
+  if (process.platform === "win32") {
+    return [];
+  }
+  return [
+    join(home, ".opencode", "bin"),
+    "/opt/homebrew/bin",
+    "/usr/local/bin",
+  ];
+}
 
-  for (const command of getOpencodeCommandCandidates()) {
+export function resolveOpencodeCommand(
+  env: NodeJS.ProcessEnv = process.env,
+): string {
+  const pathValue = env.PATH ?? env.Path;
+  const candidates = getOpencodeCommandCandidates();
+
+  for (const command of candidates) {
     const resolved = resolveCommandFromPath(command, pathValue);
     if (resolved) {
       return resolved;
     }
   }
 
-  return getOpencodeCommandCandidates()[0];
+  for (const dir of getFallbackInstallDirs()) {
+    for (const command of candidates) {
+      const resolved = join(dir, command);
+      if (existsSync(resolved)) {
+        return resolved;
+      }
+    }
+  }
+
+  return candidates[0];
 }
 
 function formatSpawnError(

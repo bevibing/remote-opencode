@@ -70,7 +70,7 @@ describe("serveManager", () => {
       expect(port).toBeGreaterThanOrEqual(14097);
       expect(port).toBeLessThanOrEqual(14200);
       expect(spawn).toHaveBeenCalledWith(
-        "opencode",
+        expect.stringMatching(/(^|\/)opencode$/),
         ["serve", "--port", port.toString()],
         expect.objectContaining({
           cwd: projectPath,
@@ -99,6 +99,29 @@ describe("serveManager", () => {
         expect(vi.mocked(spawn).mock.calls[0]?.[0]).toBe(resolvedPath);
       } finally {
         rmSync(tempDir, { recursive: true, force: true });
+      }
+    });
+
+    it("should resolve from ~/.opencode/bin fallback when PATH lookup fails", async () => {
+      if (process.platform === "win32") return; // fallbacks are POSIX-only
+      const tempHome = mkdtempSync(join(tmpdir(), "remote-opencode-home-"));
+      const opencodeBin = join(tempHome, ".opencode", "bin");
+      const resolvedPath = join(opencodeBin, "opencode");
+
+      const fs = await import("node:fs");
+      fs.mkdirSync(opencodeBin, { recursive: true });
+      writeFileSync(resolvedPath, "#!/bin/sh\nexit 0\n");
+      vi.stubEnv("HOME", tempHome);
+      vi.stubEnv("PATH", "/definitely/not/here");
+
+      const mockProc = createMockProcess();
+      vi.mocked(spawn).mockReturnValue(mockProc);
+
+      try {
+        await serveManager.spawnServe("/test/project");
+        expect(vi.mocked(spawn).mock.calls[0]?.[0]).toBe(resolvedPath);
+      } finally {
+        rmSync(tempHome, { recursive: true, force: true });
       }
     });
 
@@ -132,7 +155,7 @@ describe("serveManager", () => {
 
       expect(port).toBe(20000);
       expect(spawn).toHaveBeenCalledWith(
-        "opencode",
+        expect.stringMatching(/(^|\/)opencode$/),
         ["serve", "--port", "20000"],
         expect.anything(),
       );
