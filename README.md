@@ -243,12 +243,13 @@ Start isolated work on a new branch with its own worktree.
 
 ```
 /work branch:feature/dark-mode description:Implement dark mode toggle
+/work branch:feature/dark-mode      # description defaults to the branch name
 ```
 
-| Parameter     | Description                         |
-| ------------- | ----------------------------------- |
-| `branch`      | Git branch name (will be sanitized) |
-| `description` | Brief description of the work       |
+| Parameter     | Description                                         |
+| ------------- | --------------------------------------------------- |
+| `branch`      | Git branch name (will be sanitized)                 |
+| `description` | Optional. Defaults to the branch name when omitted. |
 
 **Features:**
 
