@@ -335,6 +335,37 @@ export async function waitForReady(
   );
 }
 
+export async function killServeByPort(port: number): Promise<boolean> {
+  let foundKey: string | undefined;
+  for (const [key, instance] of instances) {
+    if (instance.port === port) {
+      foundKey = key;
+      break;
+    }
+  }
+
+  if (!foundKey) return false;
+
+  const instance = instances.get(foundKey)!;
+  const proc = instance.process;
+  instance.exited = true;
+  instances.delete(foundKey);
+
+  proc.kill('SIGTERM');
+  await new Promise<void>((resolve) => {
+    const timer = setTimeout(() => {
+      try { proc.kill('SIGKILL'); } catch { /* ignore */ }
+      resolve();
+    }, 2000);
+    proc.once('exit', () => {
+      clearTimeout(timer);
+      resolve();
+    });
+  });
+
+  return true;
+}
+
 export function stopAll(): void {
   for (const [key, instance] of instances) {
     instance.process.kill();

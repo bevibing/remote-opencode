@@ -23,12 +23,28 @@ export async function handleButton(interaction: ButtonInteraction) {
     await handleWorktreeDelete(interaction, threadId);
   } else if (action === 'pr') {
     await handleWorktreePR(interaction, threadId);
+  } else if (action === 'forcekill') {
+    await handleForceKill(interaction, threadId);
   } else {
     await interaction.reply({
       content: '❌ Unknown action.',
       flags: MessageFlags.Ephemeral
     });
   }
+}
+
+async function handleForceKill(interaction: ButtonInteraction, threadId: string) {
+  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+  const result = await sessionManager.forceKillThread(threadId, { nuclear: false });
+
+  if (!result.hadSession && !result.sseDisconnected) {
+    await interaction.editReply({ content: 'ℹ️ No active session — nothing to kill.' });
+    return;
+  }
+
+  await interaction.editReply({
+    content: `🔪 Force kill complete — HTTP abort: ${result.httpAborted ? '✅' : '❌'}, stream closed: ${result.sseDisconnected ? '✅' : '—'}, session cleared: ${result.sessionCleared ? '✅' : '—'}.`
+  });
 }
 
 async function handleInterrupt(interaction: ButtonInteraction, threadId: string) {

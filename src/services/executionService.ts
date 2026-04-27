@@ -110,7 +110,21 @@ export async function runPrompt(
   let tick = 0;
   let promptSent = false;
   let hasSessionError = false;
+  let lastSseEventAt = Date.now();
+  const stallTimeoutMs = Number(process.env.OPENCODE_STALL_TIMEOUT_MS) || 90_000;
   const spinner = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
+
+  const buttonsWithForceKill = new ActionRowBuilder<ButtonBuilder>()
+    .addComponents(
+      new ButtonBuilder()
+        .setCustomId(`interrupt_${threadId}`)
+        .setLabel('⏸️ Interrupt')
+        .setStyle(ButtonStyle.Secondary),
+      new ButtonBuilder()
+        .setCustomId(`forcekill_${threadId}`)
+        .setLabel('🔪 Force Kill')
+        .setStyle(ButtonStyle.Danger)
+    );
   
   const updateStreamMessage = async (content: string, components: ActionRowBuilder<ButtonBuilder>[]): Promise<boolean> => {
     try {
@@ -148,15 +162,18 @@ export async function runPrompt(
     sessionId = await sessionManager.ensureSessionForThread(threadId, effectivePath, port);
     
     const sseClient = new SSEClient();
+    lastSseEventAt = Date.now();
     sseClient.connect(`http://127.0.0.1:${port}`);
     sessionManager.setSseClient(threadId, sseClient);
-    
+
     sseClient.onPartUpdated((part) => {
       if (part.sessionID !== sessionId) return;
+      lastSseEventAt = Date.now();
       accumulatedText = part.text;
     });
-    
+
     sseClient.onSessionIdle((idleSessionId) => {
+      lastSseEventAt = Date.now();
       if (idleSessionId !== sessionId) return;
       if (!promptSent) return;
       
@@ -220,6 +237,7 @@ export async function runPrompt(
     });
     
     sseClient.onSessionError((errorSessionId, errorInfo) => {
+      lastSseEventAt = Date.now();
       if (errorSessionId !== sessionId) return;
       if (!promptSent) return;
       
@@ -268,6 +286,7 @@ export async function runPrompt(
     });
     
     sseClient.onError((error) => {
+      lastSseEventAt = Date.now();
       if (updateInterval) {
         clearInterval(updateInterval);
         updateInterval = null;
@@ -302,13 +321,22 @@ export async function runPrompt(
       try {
         const formatted = formatOutput(accumulatedText);
         const spinnerChar = spinner[tick % spinner.length];
-        const newContent = formatted || 'Processing...';
-        
+        const stalledMs = Date.now() - lastSseEventAt;
+        const isStalled = promptSent && stalledMs > stallTimeoutMs;
+        const stalledSeconds = Math.round(stalledMs / 1000);
+
+        const baseContent = formatted || 'Processing...';
+        const header = isStalled
+          ? `⚠️ **Stalled — no events for ${stalledSeconds}s**`
+          : `${spinnerChar} **Running...**`;
+        const activeButtons = isStalled ? buttonsWithForceKill : buttons;
+        const newContent = `${header}\n${baseContent}`;
+
         if (newContent !== lastContent || tick % 2 === 0) {
           lastContent = newContent;
           await updateStreamMessage(
-            `${contextHeader}\n📌 **Prompt**: ${prompt}\n\n${spinnerChar} **Running...**\n${newContent}`,
-            [buttons]
+            `${contextHeader}\n📌 **Prompt**: ${prompt}\n\n${newContent}`,
+            [activeButtons]
           );
         }
       } catch (error) {

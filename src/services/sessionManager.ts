@@ -1,5 +1,6 @@
 import type { SSEClient } from "./sseClient.js";
 import * as dataStore from "./dataStore.js";
+import * as serveManager from "./serveManager.js";
 import { sanitizeModel } from "../utils/stringUtils.js";
 import { getAuthHeaders, assertNotAuthError } from "./serverAuth.js";
 
@@ -170,6 +171,7 @@ export async function abortSession(
     response = await fetch(url, {
       method: "POST",
       headers: getAuthHeaders(),
+      signal: AbortSignal.timeout(3000),
     });
   } catch {
     return false;
@@ -254,4 +256,71 @@ export function getSseClient(threadId: string): SSEClient | undefined {
 
 export function clearSseClient(threadId: string): void {
   threadSseClients.delete(threadId);
+}
+
+export interface ForceKillResult {
+  hadSession: boolean;
+  httpAborted: boolean;
+  sseDisconnected: boolean;
+  sessionCleared: boolean;
+  serveRestarted: boolean;
+  affectedThreads: string[];
+}
+
+export async function forceKillThread(
+  threadId: string,
+  opts: { nuclear?: boolean } = {}
+): Promise<ForceKillResult> {
+  const result: ForceKillResult = {
+    hadSession: false,
+    httpAborted: false,
+    sseDisconnected: false,
+    sessionCleared: false,
+    serveRestarted: false,
+    affectedThreads: [],
+  };
+
+  const session = getSessionForThread(threadId);
+  result.hadSession = !!session;
+
+  if (session) {
+    result.httpAborted = await abortSession(session.port, session.sessionId);
+  }
+
+  const sseClient = getSseClient(threadId);
+  if (sseClient) {
+    try { sseClient.disconnect(); } catch { /* ignore */ }
+    clearSseClient(threadId);
+    result.sseDisconnected = true;
+  }
+
+  if (session) {
+    clearSessionForThread(threadId);
+    result.sessionCleared = true;
+  }
+
+  dataStore.clearQueue(threadId);
+
+  if (opts.nuclear && session) {
+    const siblingThreadIds = dataStore
+      .getAllThreadSessions()
+      .filter(s => s.port === session.port && s.threadId !== threadId)
+      .map(s => s.threadId);
+
+    const killed = await serveManager.killServeByPort(session.port);
+    if (killed) {
+      result.serveRestarted = true;
+      for (const sibId of siblingThreadIds) {
+        const sib = getSseClient(sibId);
+        if (sib) {
+          try { sib.disconnect(); } catch { /* ignore */ }
+          clearSseClient(sibId);
+        }
+        clearSessionForThread(sibId);
+      }
+      result.affectedThreads = siblingThreadIds;
+    }
+  }
+
+  return result;
 }
