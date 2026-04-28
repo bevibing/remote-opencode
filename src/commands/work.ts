@@ -14,14 +14,15 @@ export const work: Command = {
     )
     .addStringOption(option =>
       option.setName('description')
-        .setDescription('Description of the work')
-        .setRequired(true)
+        .setDescription('Description of the work (defaults to branch name)')
+        .setRequired(false)
     ) as SlashCommandBuilder,
 
   execute: async (interaction: any) => {
     const i = interaction as ChatInputCommandInteraction;
     const branchInput = i.options.getString('branch', true);
-    const description = i.options.getString('description', true);
+    const sanitizedBranch = worktreeManager.sanitizeBranchName(branchInput);
+    const description = i.options.getString('description')?.trim() || sanitizedBranch;
 
     const channel = i.channel;
     if (!channel) {
@@ -53,8 +54,6 @@ export const work: Command = {
       });
       return;
     }
-
-    const sanitizedBranch = worktreeManager.sanitizeBranchName(branchInput);
 
     const existingMapping = dataStore.getWorktreeMappingByBranch(projectPath, sanitizedBranch);
     if (existingMapping) {
