@@ -148,10 +148,10 @@ export async function runPrompt(
   };
   
   try {
-    port = await serveManager.spawnServe(effectivePath, preferredModel);
-    
+    port = await serveManager.spawnServe(effectivePath);
+
     await updateStreamMessage(`${contextHeader}\n📌 **Prompt**: ${prompt}\n\n⏳ Waiting for OpenCode server...`, [buttons]);
-    await serveManager.waitForReady(port, 30000, effectivePath, preferredModel);
+    await serveManager.waitForReady(port, 30000, effectivePath);
     
     const settings = dataStore.getQueueSettings(threadId);
     

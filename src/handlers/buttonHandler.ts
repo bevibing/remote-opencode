@@ -58,12 +58,8 @@ async function handleInterrupt(interaction: ButtonInteraction, threadId: string)
     return;
   }
 
-  const channel = interaction.channel;
-  const parentChannelId = channel?.isThread() ? (channel as ThreadChannel).parentId! : channel?.id;
-  const preferredModel = parentChannelId ? dataStore.getChannelModel(parentChannelId) : undefined;
+  const port = serveManager.getPort(session.projectPath);
 
-  const port = serveManager.getPort(session.projectPath, preferredModel);
-  
   if (!port) {
     await interaction.reply({
       content: '⚠️ Server is not running.',
@@ -93,11 +89,21 @@ async function handleWorktreeDelete(interaction: ButtonInteraction, threadId: st
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
   try {
+    // Stop the opencode serve subprocess for this worktree before removing
+    // its directory. Otherwise the serve process keeps running on its port
+    // for the lifetime of the bot, leaking RAM and a port slot every time
+    // a worktree is deleted.
+    const port = serveManager.getPort(mapping.worktreePath);
+    if (port) {
+      await serveManager.killServeByPort(port);
+    }
+
     if (worktreeManager.worktreeExists(mapping.worktreePath)) {
       await worktreeManager.removeWorktree(mapping.worktreePath, false);
     }
 
     dataStore.removeWorktreeMapping(threadId);
+    sessionManager.clearSessionForThread(threadId);
 
     const channel = interaction.channel;
     if (channel?.isThread()) {
@@ -124,8 +130,8 @@ async function handleWorktreePR(interaction: ButtonInteraction, threadId: string
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
   try {
-    const port = await serveManager.spawnServe(mapping.worktreePath, preferredModel);
-    await serveManager.waitForReady(port, 30000, mapping.worktreePath, preferredModel);
+    const port = await serveManager.spawnServe(mapping.worktreePath);
+    await serveManager.waitForReady(port, 30000, mapping.worktreePath);
 
     const sessionId = await sessionManager.ensureSessionForThread(threadId, mapping.worktreePath, port);
 

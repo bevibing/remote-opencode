@@ -154,11 +154,8 @@ function cleanupInstance(key: string): void {
   instances.delete(key);
 }
 
-export async function spawnServe(
-  projectPath: string,
-  model?: string,
-): Promise<number> {
-  const key = model ? `${projectPath}:${model}` : projectPath;
+export async function spawnServe(projectPath: string): Promise<number> {
+  const key = projectPath;
   const existing = instances.get(key);
   if (existing && !existing.exited) {
     return existing.port;
@@ -171,8 +168,10 @@ export async function spawnServe(
 
   const port = await findAvailablePort();
 
-  // Note: opencode serve doesn't support --model flag
-  // Model selection must happen at session/prompt level, not server startup
+  // opencode serve doesn't support --model — model selection happens per
+  // prompt at session level, so a single serve serves all models for a
+  // project. Keying by projectPath alone (not projectPath:model) prevents
+  // accumulating idle serves every time the user switches model.
   const args = ["serve", "--port", port.toString()];
   const env = { ...process.env };
   const command = resolveOpencodeCommand(env);
@@ -246,23 +245,18 @@ export async function spawnServe(
   return port;
 }
 
-export function getPort(
-  projectPath: string,
-  model?: string,
-): number | undefined {
-  const key = model ? `${projectPath}:${model}` : projectPath;
-  return instances.get(key)?.port;
+export function getPort(projectPath: string): number | undefined {
+  return instances.get(projectPath)?.port;
 }
 
-export function stopServe(projectPath: string, model?: string): boolean {
-  const key = model ? `${projectPath}:${model}` : projectPath;
-  const instance = instances.get(key);
+export function stopServe(projectPath: string): boolean {
+  const instance = instances.get(projectPath);
   if (!instance) {
     return false;
   }
 
   instance.process.kill();
-  cleanupInstance(key);
+  cleanupInstance(projectPath);
   return true;
 }
 
@@ -270,15 +264,10 @@ export async function waitForReady(
   port: number,
   timeout: number = 30000,
   projectPath?: string,
-  model?: string,
 ): Promise<void> {
   const start = Date.now();
   const url = `http://127.0.0.1:${port}/session`;
-  const key = projectPath
-    ? model
-      ? `${projectPath}:${model}`
-      : projectPath
-    : null;
+  const key = projectPath ?? null;
 
   while (Date.now() - start < timeout) {
     // Check if the process has exited early
@@ -335,6 +324,25 @@ export async function waitForReady(
   );
 }
 
+async function terminateProcess(proc: ChildProcess, sigkillAfterMs = 2000): Promise<void> {
+  if (proc.exitCode !== null || proc.killed) return;
+
+  try {
+    proc.kill('SIGTERM');
+  } catch { /* already dead */ }
+
+  await new Promise<void>((resolve) => {
+    const timer = setTimeout(() => {
+      try { proc.kill('SIGKILL'); } catch { /* ignore */ }
+      resolve();
+    }, sigkillAfterMs);
+    proc.once('exit', () => {
+      clearTimeout(timer);
+      resolve();
+    });
+  });
+}
+
 export async function killServeByPort(port: number): Promise<boolean> {
   let foundKey: string | undefined;
   for (const [key, instance] of instances) {
@@ -347,37 +355,20 @@ export async function killServeByPort(port: number): Promise<boolean> {
   if (!foundKey) return false;
 
   const instance = instances.get(foundKey)!;
-  const proc = instance.process;
   instance.exited = true;
   instances.delete(foundKey);
-
-  if (proc.exitCode !== null || proc.killed) {
-    return true;
-  }
-
-  try {
-    proc.kill('SIGTERM');
-  } catch { /* already dead — fall through */ }
-
-  await new Promise<void>((resolve) => {
-    const timer = setTimeout(() => {
-      try { proc.kill('SIGKILL'); } catch { /* ignore */ }
-      resolve();
-    }, 2000);
-    proc.once('exit', () => {
-      clearTimeout(timer);
-      resolve();
-    });
-  });
-
+  await terminateProcess(instance.process);
   return true;
 }
 
-export function stopAll(): void {
+export async function stopAll(): Promise<void> {
+  const pending: Promise<void>[] = [];
   for (const [key, instance] of instances) {
-    instance.process.kill();
-    cleanupInstance(key);
+    instance.exited = true;
+    instances.delete(key);
+    pending.push(terminateProcess(instance.process));
   }
+  await Promise.all(pending);
 }
 
 export function getAllInstances(): Array<{ key: string; port: number }> {
@@ -389,12 +380,10 @@ export function getAllInstances(): Array<{ key: string; port: number }> {
 
 export function getInstanceState(
   projectPath: string,
-  model?: string,
 ):
   | { exited: boolean; exitCode?: number | null; exitError?: string }
   | undefined {
-  const key = model ? `${projectPath}:${model}` : projectPath;
-  const instance = instances.get(key);
+  const instance = instances.get(projectPath);
   if (!instance) return undefined;
   return {
     exited: instance.exited ?? false,

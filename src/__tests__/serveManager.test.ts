@@ -290,16 +290,34 @@ describe("serveManager", () => {
       await serveManager.spawnServe("/project1");
       await serveManager.spawnServe("/project2");
 
-      serveManager.stopAll();
+      const stopPromise = serveManager.stopAll();
+      mockProc1.emit('exit', 0, null);
+      mockProc2.emit('exit', 0, null);
+      await stopPromise;
 
-      expect(mockProc1.kill).toHaveBeenCalled();
-      expect(mockProc2.kill).toHaveBeenCalled();
+      expect(mockProc1.kill).toHaveBeenCalledWith("SIGTERM");
+      expect(mockProc2.kill).toHaveBeenCalledWith("SIGTERM");
       expect(serveManager.getPort("/project1")).toBeUndefined();
       expect(serveManager.getPort("/project2")).toBeUndefined();
     });
 
-    it("should handle empty instances gracefully", () => {
-      expect(() => serveManager.stopAll()).not.toThrow();
+    it("SIGKILLs serves that ignore SIGTERM", async () => {
+      const mockProc = createMockProcess();
+      vi.mocked(spawn).mockReturnValue(mockProc);
+      await serveManager.spawnServe("/project-stubborn");
+
+      vi.useFakeTimers();
+      const stopPromise = serveManager.stopAll();
+      await vi.advanceTimersByTimeAsync(2100);
+      await stopPromise;
+      vi.useRealTimers();
+
+      expect(mockProc.kill).toHaveBeenNthCalledWith(1, "SIGTERM");
+      expect(mockProc.kill).toHaveBeenNthCalledWith(2, "SIGKILL");
+    });
+
+    it("should handle empty instances gracefully", async () => {
+      await expect(serveManager.stopAll()).resolves.toBeUndefined();
     });
   });
 

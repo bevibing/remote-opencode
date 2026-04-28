@@ -31,20 +31,20 @@ export async function startBot(): Promise<void> {
   client.on(Events.InteractionCreate, handleInteraction);
   client.on(Events.MessageCreate, handleMessageCreate);
   
-  function gracefulShutdown(signal: string) {
+  async function gracefulShutdown(signal: string) {
     console.log(pc.yellow(`\n${signal} received. Shutting down gracefully...`));
-    
-    serveManager.stopAll();
+
+    await serveManager.stopAll();
     console.log(pc.dim('All opencode serve instances stopped.'));
-    
+
     client.destroy();
     console.log(pc.dim('Discord client destroyed.'));
-    
+
     process.exit(0);
   }
-  
-  process.on('SIGINT', () => gracefulShutdown('SIGINT'));
-  process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+
+  process.on('SIGINT', () => { void gracefulShutdown('SIGINT'); });
+  process.on('SIGTERM', () => { void gracefulShutdown('SIGTERM'); });
   
   initializeProxySupport();
   console.log(pc.dim('Connecting to Discord...'));
