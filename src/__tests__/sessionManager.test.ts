@@ -49,6 +49,10 @@ vi.mock("../services/dataStore.js", () => ({
 import {
   createSession,
   sendPrompt,
+  validateSession,
+  getSessionInfo,
+  listSessions,
+  abortSession,
   ensureSessionForThread,
   getSessionForThread,
   setSessionForThread,
@@ -444,6 +448,84 @@ describe("SessionManager", () => {
       await expect(createSession(3000)).rejects.toThrow(
         /OPENCODE_SERVER_PASSWORD is not set/i,
       );
+    });
+
+    it("surfaces auth errors from validateSession instead of returning false", async () => {
+      process.env.OPENCODE_SERVER_PASSWORD = "wrong";
+      mockFetch.mockResolvedValueOnce({
+        ok: false,
+        status: 401,
+        statusText: "Unauthorized",
+      });
+
+      await expect(validateSession(3000, "ses_abc")).rejects.toThrow(
+        /rejected credentials/i,
+      );
+    });
+
+    it("surfaces auth errors from getSessionInfo instead of returning null", async () => {
+      process.env.OPENCODE_SERVER_PASSWORD = "wrong";
+      mockFetch.mockResolvedValueOnce({
+        ok: false,
+        status: 401,
+        statusText: "Unauthorized",
+      });
+
+      await expect(getSessionInfo(3000, "ses_abc")).rejects.toThrow(
+        /rejected credentials/i,
+      );
+    });
+
+    it("surfaces auth errors from listSessions instead of returning an empty list", async () => {
+      process.env.OPENCODE_SERVER_PASSWORD = "wrong";
+      mockFetch.mockResolvedValueOnce({
+        ok: false,
+        status: 401,
+        statusText: "Unauthorized",
+      });
+
+      await expect(listSessions(3000)).rejects.toThrow(
+        /rejected credentials/i,
+      );
+    });
+
+    it("surfaces auth errors from abortSession instead of returning false", async () => {
+      process.env.OPENCODE_SERVER_PASSWORD = "wrong";
+      mockFetch.mockResolvedValueOnce({
+        ok: false,
+        status: 401,
+        statusText: "Unauthorized",
+      });
+
+      await expect(abortSession(3000, "ses_abc")).rejects.toThrow(
+        /rejected credentials/i,
+      );
+    });
+
+    it("keeps existing fallback values for non-auth HTTP failures", async () => {
+      mockFetch
+        .mockResolvedValueOnce({ ok: false, status: 404 })
+        .mockResolvedValueOnce({ ok: false, status: 404 })
+        .mockResolvedValueOnce({ ok: false, status: 404 })
+        .mockResolvedValueOnce({ ok: false, status: 404 });
+
+      await expect(validateSession(3000, "ses_missing")).resolves.toBe(false);
+      await expect(getSessionInfo(3000, "ses_missing")).resolves.toBeNull();
+      await expect(listSessions(3000)).resolves.toEqual([]);
+      await expect(abortSession(3000, "ses_missing")).resolves.toBe(false);
+    });
+
+    it("keeps existing fallback values for transport failures", async () => {
+      mockFetch
+        .mockRejectedValueOnce(new Error("ECONNREFUSED"))
+        .mockRejectedValueOnce(new Error("ECONNREFUSED"))
+        .mockRejectedValueOnce(new Error("ECONNREFUSED"))
+        .mockRejectedValueOnce(new Error("ECONNREFUSED"));
+
+      await expect(validateSession(3000, "ses_abc")).resolves.toBe(false);
+      await expect(getSessionInfo(3000, "ses_abc")).resolves.toBeNull();
+      await expect(listSessions(3000)).resolves.toEqual([]);
+      await expect(abortSession(3000, "ses_abc")).resolves.toBe(false);
     });
   });
 });

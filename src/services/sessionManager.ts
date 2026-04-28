@@ -88,40 +88,44 @@ export async function validateSession(
   port: number,
   sessionId: string,
 ): Promise<boolean> {
+  const url = `http://127.0.0.1:${port}/session/${sessionId}`;
+  let response: Response;
   try {
-    const url = `http://127.0.0.1:${port}/session/${sessionId}`;
-    const response = await fetch(url, {
+    response = await fetch(url, {
       method: "GET",
       headers: jsonHeaders(),
     });
-    if (!response.ok) {
-      assertNotAuthError(response.status, "Failed to validate session");
-    }
-    return response.ok;
   } catch {
     return false;
   }
+
+  if (!response.ok) {
+    assertNotAuthError(response.status, "Failed to validate session");
+  }
+  return response.ok;
 }
 
 export async function getSessionInfo(
   port: number,
   sessionId: string,
 ): Promise<SessionInfo | null> {
+  const url = `http://127.0.0.1:${port}/session/${sessionId}`;
+  let response: Response;
   try {
-    const url = `http://127.0.0.1:${port}/session/${sessionId}`;
-    const response = await fetch(url, {
+    response = await fetch(url, {
       method: "GET",
       headers: jsonHeaders(),
     });
-    if (!response.ok) {
-      assertNotAuthError(response.status, "Failed to get session info");
-      return null;
-    }
-    const data = await response.json();
-    return { id: data.id, title: data.title ?? "" };
   } catch {
     return null;
   }
+
+  if (!response.ok) {
+    assertNotAuthError(response.status, "Failed to get session info");
+    return null;
+  }
+  const data = await response.json();
+  return { id: data.id, title: data.title ?? "" };
 }
 
 export interface SessionInfo {
@@ -130,48 +134,51 @@ export interface SessionInfo {
 }
 
 export async function listSessions(port: number): Promise<SessionInfo[]> {
+  const url = `http://127.0.0.1:${port}/session`;
+  let response: Response;
   try {
-    const url = `http://127.0.0.1:${port}/session`;
-    const response = await fetch(url, {
+    response = await fetch(url, {
       method: "GET",
       headers: jsonHeaders(),
     });
-
-    if (!response.ok) {
-      assertNotAuthError(response.status, "Failed to list sessions");
-      return [];
-    }
-
-    const data = await response.json();
-    if (Array.isArray(data)) {
-      return data.map((s: { id: string; title?: string }) => ({
-        id: s.id,
-        title: s.title ?? "",
-      }));
-    }
-    return [];
   } catch {
     return [];
   }
+
+  if (!response.ok) {
+    assertNotAuthError(response.status, "Failed to list sessions");
+    return [];
+  }
+
+  const data = await response.json();
+  if (Array.isArray(data)) {
+    return data.map((s: { id: string; title?: string }) => ({
+      id: s.id,
+      title: s.title ?? "",
+    }));
+  }
+  return [];
 }
 
 export async function abortSession(
   port: number,
   sessionId: string,
 ): Promise<boolean> {
+  const url = `http://127.0.0.1:${port}/session/${sessionId}/abort`;
+  let response: Response;
   try {
-    const url = `http://127.0.0.1:${port}/session/${sessionId}/abort`;
-    const response = await fetch(url, {
+    response = await fetch(url, {
       method: "POST",
       headers: getAuthHeaders(),
     });
-    if (!response.ok) {
-      assertNotAuthError(response.status, "Failed to abort session");
-    }
-    return response.ok;
   } catch {
     return false;
   }
+
+  if (!response.ok) {
+    assertNotAuthError(response.status, "Failed to abort session");
+  }
+  return response.ok;
 }
 
 export function getSessionForThread(
