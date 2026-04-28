@@ -322,6 +322,26 @@ Enable automatic worktree creation for a project. When enabled, new `/opencode` 
 - 🚀 **Create PR button** — easily create pull requests from worktree
 - ⚡ **Per-project setting** — enable/disable independently for each project
 
+### `/autocode` — Toggle Automatic Passthrough Mode
+
+Enable automatic passthrough mode for a project. When enabled, every new thread the bot creates (via `/work` or `/opencode`) will already have passthrough mode on, so plain messages are sent to OpenCode without needing to run `/code` first.
+
+```
+/autocode
+```
+
+**How it works:**
+
+1. Run `/autocode` in a channel bound to a project
+2. The setting toggles on/off for that project
+3. New threads in that project skip the manual `/code` step
+
+**Features:**
+
+- 📱 **Mobile-friendly** — one less command to type per thread
+- 🧵 **Thread-scoped** — each new thread starts with passthrough enabled; `/code` still toggles it within a thread
+- ⚡ **Per-project setting** — enable/disable independently for each project
+
 ### `/queue` — Manage Message Queue
 
 Control the automated job queue for the current thread.

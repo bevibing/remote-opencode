@@ -87,6 +87,11 @@ export const work: Command = {
         createdAt: Date.now()
       });
 
+      const alias = dataStore.getChannelBinding(i.channelId);
+      if (alias && dataStore.getProjectAutoPassthrough(alias)) {
+        dataStore.setPassthroughMode(thread.id, true, i.user.id);
+      }
+
       const embed = new EmbedBuilder()
         .setTitle(`🌳 Worktree: ${sanitizedBranch}`)
         .setDescription(description)

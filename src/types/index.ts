@@ -4,6 +4,7 @@ export interface ProjectConfig {
   alias: string;
   path: string;
   autoWorktree?: boolean;
+  autoPassthrough?: boolean;
 }
 
 export interface ChannelBinding {
