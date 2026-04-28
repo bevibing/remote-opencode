@@ -61,6 +61,15 @@ function getFallbackInstallDirs(): string[] {
 export function resolveOpencodeCommand(
   env: NodeJS.ProcessEnv = process.env,
 ): string {
+  // User-supplied absolute path takes precedence over PATH and fallback dirs.
+  // Useful when opencode is installed somewhere unusual (custom prefix, nix
+  // store, asdf shim, etc). Silently ignored if the file doesn't exist so a
+  // stale env var doesn't lock the bot out — fall through to normal lookup.
+  const override = env.OPENCODE_BIN;
+  if (override && existsSync(override)) {
+    return override;
+  }
+
   const pathValue = env.PATH ?? env.Path;
   const candidates = getOpencodeCommandCandidates();
 
