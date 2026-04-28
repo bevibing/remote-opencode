@@ -4,9 +4,17 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [1.5.3] - 2026-04-28
+
 ### Added
 
-- **Upstream `OPENCODE_SERVER_PASSWORD` support** (closes #39): When `OPENCODE_SERVER_PASSWORD` (and optionally `OPENCODE_SERVER_USERNAME`) is set in the bot's environment, the credentials are automatically forwarded as HTTP Basic auth on every internal request to the local `opencode serve` process — session HTTP calls, the SSE `/event` stream, and readiness probes. Behavior is unchanged when the env vars are not set. Misconfigured credentials surface a clear actionable error instead of a vague connection failure. This is optional hardening / compatibility with upstream opencode auth, not a replacement for the Discord allowlist.
+- **Upstream `OPENCODE_SERVER_PASSWORD` support** (PR #50, closes #39): When `OPENCODE_SERVER_PASSWORD` (and optionally `OPENCODE_SERVER_USERNAME`) is set in the bot's environment, the credentials are automatically forwarded as HTTP Basic auth on every internal request to the local `opencode serve` process: session HTTP calls, the SSE `/event` stream, and readiness probes. Behavior is unchanged when the env vars are not set. Misconfigured credentials surface a clear actionable error instead of a vague connection failure. This is optional hardening / compatibility with upstream opencode auth, not a replacement for the Discord allowlist.
+- **`/autocode` command** (PR #54): Added a per-project toggle that automatically enables passthrough mode for new `/work` and `/opencode` threads, so plain messages are sent to OpenCode without needing `/code` first.
+
+### Changed
+
+- **Optional `/work` description** (PR #56): `/work` can now be run without a description. When omitted or blank, the branch name is used as the default thread description.
+- **Thread channel access docs** (PR #52): Clarified Discord channel access requirements for threads in the README.
 
 ## [1.5.2] - 2026-04-05
 
