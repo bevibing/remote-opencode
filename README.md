@@ -176,7 +176,7 @@ If you prefer manual setup or need to troubleshoot:
 | `remote-opencode setup`                 | Interactive setup wizard — configures bot token, IDs |
 | `remote-opencode start`                 | Start the Discord bot                                |
 | `remote-opencode deploy`                | Deploy/update slash commands to Discord              |
-| `remote-opencode undeploy`              | Remove slash commands from Discord                  |
+| `remote-opencode undeploy`              | Remove slash commands from Discord                   |
 | `remote-opencode config`                | Display current configuration info                   |
 | `remote-opencode allow add <userId>`    | Add a Discord user ID to the allowlist               |
 | `remote-opencode allow remove <userId>` | Remove a Discord user ID from the allowlist          |
@@ -379,9 +379,9 @@ Show git diffs for the current project directly in Discord — perfect for revie
 
 | Parameter | Description                                                        |
 | --------- | ------------------------------------------------------------------ |
-| `target`  | `unstaged` (default), `staged`, or `branch`                       |
+| `target`  | `unstaged` (default), `staged`, or `branch`                        |
 | `stat`    | Show `--stat` summary only instead of full diff (default: `false`) |
-| `base`    | Base branch for `target:branch` diff (default: `main`)            |
+| `base`    | Base branch for `target:branch` diff (default: `main`)             |
 
 **How it works:**
 
@@ -433,9 +433,9 @@ Manage voice message transcription settings. Requires an OpenAI API key (set via
 /voice remove               Remove the stored OpenAI API key
 ```
 
-| Parameter | Description |
-| --------- | ----------------------------------------- |
-| (none) | Subcommands only: `status`, `remove` |
+| Parameter | Description                          |
+| --------- | ------------------------------------ |
+| (none)    | Subcommands only: `status`, `remove` |
 
 **How it works:**
 
@@ -458,10 +458,10 @@ View available AI models or set the model for the current channel.
 /model set name:anthropic/claude-sonnet-4-20250514
 ```
 
-| Subcommand | Description                                       |
-| ---------- | ------------------------------------------------- |
-| `list`     | Show all available models grouped by provider     |
-| `set`      | Set the AI model for the current channel/thread   |
+| Subcommand | Description                                     |
+| ---------- | ----------------------------------------------- |
+| `list`     | Show all available models grouped by provider   |
+| `set`      | Set the AI model for the current channel/thread |
 
 **Features:**
 
@@ -633,6 +633,31 @@ remote-opencode allow reset    # Clears entire allowlist (disables access contro
 - **`allow reset`** is the only way to fully clear the allowlist (intentional action to disable access control)
 - **Discord `/allow` is disabled when allowlist is empty** — prevents bootstrap attacks
 - **Config file permissions** are set to `0o600` (owner-read/write only)
+
+### OpenCode server password (optional)
+
+`remote-opencode` communicates with a local `opencode serve` process bound to
+`127.0.0.1`. If you already run `opencode serve` with upstream HTTP Basic auth
+enabled via `OPENCODE_SERVER_PASSWORD` (and optionally `OPENCODE_SERVER_USERNAME`),
+the bot will automatically pick up the same credentials from its own environment
+and apply them to all internal communication — session HTTP calls, the SSE
+`/event` stream, and readiness probes.
+
+```bash
+# Example: start the bot with upstream opencode auth enabled
+OPENCODE_SERVER_PASSWORD='your-password' remote-opencode start
+```
+
+Notes:
+
+- Behavior is **unchanged when these env vars are not set** — this is purely
+  optional hardening / compatibility for users who already rely on upstream
+  `opencode serve` auth.
+- This is **not a replacement** for the Discord allowlist described above; it is
+  an additional layer for the local HTTP surface only.
+- `OPENCODE_SERVER_USERNAME` defaults to `opencode` to match upstream.
+- Misconfiguration produces a clear error (e.g. `opencode server rejected
+credentials (HTTP 401) ...`) rather than a vague connection failure.
 
 ---
 
