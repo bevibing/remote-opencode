@@ -162,6 +162,7 @@ If you prefer manual setup or need to troubleshoot:
    ```
    https://discord.com/api/oauth2/authorize?client_id=YOUR_CLIENT_ID&permissions=2147534848&scope=bot+applications.commands
    ```
+6. **Check Channel Access**: For private or restricted channels, make sure the bot user or bot role can access the channel.
 
 </details>
 
@@ -683,6 +684,10 @@ You need to bind a project to the channel:
 /setpath alias:myproject path:/path/to/project
 /use alias:myproject
 ```
+
+### "Cannot create thread"
+
+For private or restricted channels, make sure the bot user or bot role can access the target channel and has these permissions: View Channel, Send Messages, Create Public Threads, Send Messages in Threads, and Read Message History.
 
 ### Commands not appearing in Discord
 
