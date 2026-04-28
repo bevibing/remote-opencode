@@ -349,13 +349,19 @@ Escape hatch for threads where `/interrupt` doesn't respond. Run inside the thre
 
 ```
 /kill
+/kill nuclear:true
 ```
+
+| Parameter  | Description                                                                                  |
+| ---------- | -------------------------------------------------------------------------------------------- |
+| `nuclear`  | Optional. Also kill the underlying `opencode serve` subprocess (resets sibling threads too). |
 
 **What it does:**
 
 1. HTTP-aborts the current session (with a 3s timeout so it can't hang)
 2. Force-closes the SSE stream and stops the running update interval
 3. Clears the thread's session and queue
+4. With `nuclear:true`: kills the OpenCode `serve` subprocess via `SIGTERM` → `SIGKILL` after 2s, and resets every other thread on the same project
 
 **Stall watchdog (automatic):**
 
