@@ -15,10 +15,6 @@ const dataStoreMock = vi.hoisted(() => {
   };
 });
 
-const serveManagerMock = vi.hoisted(() => ({
-  killServeByPort: vi.fn(),
-}));
-
 vi.mock('../services/dataStore.js', () => ({
   getThreadSession: dataStoreMock.getThreadSession,
   setThreadSession: dataStoreMock.setThreadSession,
@@ -26,10 +22,6 @@ vi.mock('../services/dataStore.js', () => ({
   clearThreadSession: dataStoreMock.clearThreadSession,
   getAllThreadSessions: dataStoreMock.getAllThreadSessions,
   clearQueue: dataStoreMock.clearQueue,
-}));
-
-vi.mock('../services/serveManager.js', () => ({
-  killServeByPort: serveManagerMock.killServeByPort,
 }));
 
 import {
@@ -64,8 +56,6 @@ describe('forceKillThread', () => {
     expect(result.httpAborted).toBe(false);
     expect(result.sseDisconnected).toBe(false);
     expect(result.sessionCleared).toBe(false);
-    expect(result.serveKilled).toBe(false);
-    expect(serveManagerMock.killServeByPort).not.toHaveBeenCalled();
   });
 
   it('aborts session, disconnects SSE, clears session+queue', async () => {
@@ -88,8 +78,6 @@ describe('forceKillThread', () => {
       httpAborted: true,
       sseDisconnected: true,
       sessionCleared: true,
-      serveKilled: false,
-      affectedThreads: [],
     });
   });
 
@@ -125,64 +113,5 @@ describe('forceKillThread', () => {
     await forceKillThread('thread-4');
 
     expect(cleanup).toHaveBeenCalledTimes(1);
-  });
-
-  describe('nuclear', () => {
-    it('kills serve and resets sibling threads (session + sse + queue + cleanup)', async () => {
-      setSessionForThread('thread-A', 'sess-A', '/proj', 14200);
-      setSessionForThread('thread-B', 'sess-B', '/proj', 14200);
-      setSessionForThread('thread-C', 'sess-C', '/proj', 14200);
-      const sseA = makeFakeSseClient();
-      const sseB = makeFakeSseClient();
-      const sseC = makeFakeSseClient();
-      setSseClient('thread-A', sseA);
-      setSseClient('thread-B', sseB);
-      setSseClient('thread-C', sseC);
-      const cleanupB = vi.fn();
-      const cleanupC = vi.fn();
-      setRunCleanup('thread-B', cleanupB);
-      setRunCleanup('thread-C', cleanupC);
-
-      mockFetch.mockResolvedValueOnce({ ok: true });
-      serveManagerMock.killServeByPort.mockResolvedValueOnce(true);
-
-      const result = await forceKillThread('thread-A', { nuclear: true });
-
-      expect(serveManagerMock.killServeByPort).toHaveBeenCalledWith(14200);
-      expect(result.serveKilled).toBe(true);
-      expect(new Set(result.affectedThreads)).toEqual(new Set(['thread-B', 'thread-C']));
-
-      expect(sseB.disconnect).toHaveBeenCalledOnce();
-      expect(sseC.disconnect).toHaveBeenCalledOnce();
-      expect(dataStoreMock.clearThreadSession).toHaveBeenCalledWith('thread-B');
-      expect(dataStoreMock.clearThreadSession).toHaveBeenCalledWith('thread-C');
-      expect(dataStoreMock.clearQueue).toHaveBeenCalledWith('thread-B');
-      expect(dataStoreMock.clearQueue).toHaveBeenCalledWith('thread-C');
-      expect(cleanupB).toHaveBeenCalledOnce();
-      expect(cleanupC).toHaveBeenCalledOnce();
-    });
-
-    it('does not affect threads on a different port', async () => {
-      setSessionForThread('thread-A', 'sess-A', '/proj-a', 14200);
-      setSessionForThread('thread-D', 'sess-D', '/proj-d', 14201);
-
-      mockFetch.mockResolvedValueOnce({ ok: true });
-      serveManagerMock.killServeByPort.mockResolvedValueOnce(true);
-
-      const result = await forceKillThread('thread-A', { nuclear: true });
-
-      expect(result.affectedThreads).toEqual([]);
-      expect(dataStoreMock.clearQueue).not.toHaveBeenCalledWith('thread-D');
-    });
-
-    it('reports serveKilled:false when killServeByPort returns false', async () => {
-      setSessionForThread('thread-E', 'sess-E', '/proj', 14202);
-      mockFetch.mockResolvedValueOnce({ ok: true });
-      serveManagerMock.killServeByPort.mockResolvedValueOnce(false);
-
-      const result = await forceKillThread('thread-E', { nuclear: true });
-
-      expect(result.serveKilled).toBe(false);
-    });
   });
 });

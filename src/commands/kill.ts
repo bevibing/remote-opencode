@@ -9,12 +9,7 @@ import type { Command } from './index.js';
 export const kill: Command = {
   data: new SlashCommandBuilder()
     .setName('kill')
-    .setDescription('Force-kill the OpenCode session in this thread (use when /interrupt hangs)')
-    .addBooleanOption(option =>
-      option.setName('nuclear')
-        .setDescription('Also restart the OpenCode serve subprocess (kills sibling threads on this project)')
-        .setRequired(false)
-    ) as SlashCommandBuilder,
+    .setDescription('Force-kill the OpenCode session in this thread (use when /interrupt hangs)') as SlashCommandBuilder,
 
   async execute(interaction: ChatInputCommandInteraction) {
     const channel = interaction.channel;
@@ -26,11 +21,9 @@ export const kill: Command = {
       return;
     }
 
-    const nuclear = interaction.options.getBoolean('nuclear') ?? false;
-
     await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
-    const result = await sessionManager.forceKillThread(channel.id, { nuclear });
+    const result = await sessionManager.forceKillThread(channel.id);
 
     if (!result.hadSession) {
       await interaction.editReply({
@@ -45,19 +38,9 @@ export const kill: Command = {
       `• SSE stream closed: ${result.sseDisconnected ? '✅' : '— (no active stream)'}`,
       `• Thread session cleared: ${result.sessionCleared ? '✅' : '— (no session)'}`,
       `• Queue cleared: ✅`,
+      '',
+      'Send a new message or `/opencode` to start fresh.',
     ];
-
-    if (nuclear) {
-      lines.push(`• Serve subprocess killed: ${result.serveKilled ? '✅ (next prompt spawns a fresh one)' : '❌'}`);
-      if (result.affectedThreads.length > 0) {
-        const mentions = result.affectedThreads.map(id => `<#${id}>`).join(', ');
-        lines.push(`• Sibling threads also reset: ${mentions}`);
-      }
-    } else {
-      lines.push('', '_If the OpenCode serve subprocess itself is wedged, run `/kill nuclear:true` to also kill it._');
-    }
-
-    lines.push('', 'Send a new message or `/opencode` to start fresh.');
 
     await interaction.editReply({ content: lines.join('\n') });
   }

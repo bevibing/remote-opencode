@@ -1,6 +1,5 @@
 import type { SSEClient } from "./sseClient.js";
 import * as dataStore from "./dataStore.js";
-import * as serveManager from "./serveManager.js";
 import { sanitizeModel } from "../utils/stringUtils.js";
 import { getAuthHeaders, assertNotAuthError } from "./serverAuth.js";
 
@@ -280,21 +279,14 @@ export interface ForceKillResult {
   httpAborted: boolean;
   sseDisconnected: boolean;
   sessionCleared: boolean;
-  serveKilled: boolean;
-  affectedThreads: string[];
 }
 
-export async function forceKillThread(
-  threadId: string,
-  opts: { nuclear?: boolean } = {}
-): Promise<ForceKillResult> {
+export async function forceKillThread(threadId: string): Promise<ForceKillResult> {
   const result: ForceKillResult = {
     hadSession: false,
     httpAborted: false,
     sseDisconnected: false,
     sessionCleared: false,
-    serveKilled: false,
-    affectedThreads: [],
   };
 
   const session = getSessionForThread(threadId);
@@ -322,29 +314,6 @@ export async function forceKillThread(
   }
 
   dataStore.clearQueue(threadId);
-
-  if (opts.nuclear && session) {
-    const siblingThreadIds = dataStore
-      .getAllThreadSessions()
-      .filter(s => s.port === session.port && s.threadId !== threadId)
-      .map(s => s.threadId);
-
-    const killed = await serveManager.killServeByPort(session.port);
-    if (killed) {
-      result.serveKilled = true;
-      for (const sibId of siblingThreadIds) {
-        const sib = getSseClient(sibId);
-        if (sib) {
-          try { sib.disconnect(); } catch { /* ignore */ }
-          clearSseClient(sibId);
-        }
-        runCleanup(sibId);
-        clearSessionForThread(sibId);
-        dataStore.clearQueue(sibId);
-      }
-      result.affectedThreads = siblingThreadIds;
-    }
-  }
 
   return result;
 }
