@@ -9,7 +9,7 @@ import { execFile, execFileSync } from 'node:child_process';
 import * as dataStore from '../services/dataStore.js';
 import { resolveOpencodeCommand } from '../services/serveManager.js';
 import type { Command } from './index.js';
-import { sanitizeModel } from '../utils/stringUtils.js';
+import { sanitizeModel, truncateModel } from '../utils/stringUtils.js';
 
 let cachedModels: string[] = [];
 let cacheTimestamp = 0;
@@ -95,39 +95,50 @@ export const model: Command = {
           groups[provider].push(m);
         }
 
-        let response = '### 🤖 Available Models\n\n';
+        // Build flat list of lines
+        const lines: string[] = [];
+        lines.push('### 🤖 Available Models\n');
+        for (const [provider, providerModels] of Object.entries(groups)) {
+          lines.push(`**${provider}**`);
+          for (const m of providerModels) {
+            lines.push(`• \`${truncateModel(m)}\``);
+          }
+          lines.push(''); // blank line between providers
+        }
+
+        // Flush lines into messages, respecting Discord's 2000-char ceiling
+        const MAX_MESSAGE_LENGTH = 1800;
+        let response = '';
         let isFirstMessage = true;
 
-        for (const [provider, providerModels] of Object.entries(groups)) {
-          const providerBlock = `**${provider}**\n` +
-            providerModels.map(m => `• \`${m}\``).join('\n') + '\n\n';
+        const flush = async (text: string): Promise<void> => {
+          if (isFirstMessage) {
+            await interaction.editReply(text);
+            isFirstMessage = false;
+          } else {
+            await interaction.followUp({ content: text, flags: MessageFlags.Ephemeral });
+          }
+        };
 
-          if (response.length + providerBlock.length > 1800 && response.length > 0) {
-            if (isFirstMessage) {
-              await interaction.editReply(response);
-              isFirstMessage = false;
-            } else {
-              await interaction.followUp({ content: response, flags: MessageFlags.Ephemeral });
-            }
+        for (const line of lines) {
+          const candidate = line + '\n';
+          if (response.length + candidate.length > MAX_MESSAGE_LENGTH && response.length > 0) {
+            await flush(response);
             response = '';
           }
-
-          response += providerBlock;
+          response += candidate;
         }
 
         if (response) {
-          if (isFirstMessage) {
-            await interaction.editReply(response);
-          } else {
-            await interaction.followUp({ content: response, flags: MessageFlags.Ephemeral });
-          }
+          await flush(response);
         }
       } catch (error) {
         console.error('Failed to list models:', error);
         await interaction.editReply('❌ Failed to retrieve models from OpenCode CLI.');
       }
     } else if (subcommand === 'set') {
-      const modelName = interaction.options.getString('name', true);
+      const rawName = interaction.options.getString('name', true);
+      const modelName = sanitizeModel(rawName);
       const channelId = getEffectiveChannelId(interaction);
       
       const projectAlias = dataStore.getChannelBinding(channelId);
@@ -145,7 +156,7 @@ export const model: Command = {
         const availableModels = getCachedModels();
         if (availableModels.length > 0 && !availableModels.includes(modelName)) {
           await interaction.editReply(
-            `❌ Model \`${modelName}\` not found.\nUse \`/model list\` to see available models.`
+            `❌ Model \`${truncateModel(modelName)}\` not found.\nUse \`/model list\` to see available models.`
           );
           return;
         }
@@ -155,8 +166,9 @@ export const model: Command = {
 
       dataStore.setChannelModel(channelId, modelName);
       
+      const displayName = truncateModel(modelName);
       await interaction.editReply(
-        `✅ Model for this channel set to \`${modelName}\`.\nSubsequent commands will use this model.`
+        `✅ Model for this channel set to \`${displayName}\`.\nSubsequent commands will use this model.`
       );
     }
   },
@@ -167,7 +179,8 @@ export const model: Command = {
 
     const filtered = models
       .filter(m => m.toLowerCase().includes(focused))
-      .slice(0, 25);
+      .slice(0, 25)
+      .map(m => truncateModel(m, 100)); // Discord autocomplete name has 100-char limit
 
     try {
       await interaction.respond(

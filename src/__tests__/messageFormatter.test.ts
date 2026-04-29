@@ -89,6 +89,20 @@ describe('messageFormatter', () => {
       const result = buildContextHeader('auto/abc12345-1738600000000', 'default');
       expect(result).toBe('🌿 `auto/abc12345-1738600000000` · 🤖 `default`');
     });
+
+    it('should truncate very long branch names', () => {
+      const longBranch = 'a'.repeat(200);
+      const result = buildContextHeader(longBranch, 'default');
+      expect(result.length).toBeLessThanOrEqual(120);
+      expect(result).toContain('...');
+    });
+
+    it('should truncate very long model names', () => {
+      const longModel = 'b'.repeat(200);
+      const result = buildContextHeader('main', longModel);
+      expect(result.length).toBeLessThanOrEqual(120);
+      expect(result).toContain('...');
+    });
   });
 
   describe('formatOutput (existing functionality)', () => {

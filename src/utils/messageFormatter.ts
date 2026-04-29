@@ -93,7 +93,9 @@ export function parseOpenCodeOutput(buffer: string): string {
 }
 
 export function buildContextHeader(branchName: string, modelName: string): string {
-  return `🌿 \`${branchName}\` · 🤖 \`${modelName}\``;
+  const safeBranch = branchName.length > 100 ? branchName.slice(0, 97) + '...' : branchName;
+  const safeModel = modelName.length > 100 ? modelName.slice(0, 97) + '...' : modelName;
+  return `🌿 \`${safeBranch}\` · 🤖 \`${safeModel}\``;
 }
 
 
