@@ -53,6 +53,10 @@ describe("serveManager", () => {
     vi.resetAllMocks();
     originalPath = process.env.PATH;
     vi.stubEnv("PATH", "/nonexistent");
+    // Prevent the user's shell OPENCODE_BIN from leaking into tests that don't
+    // explicitly opt in to the override path. Tests that exercise the override
+    // re-stub this with their own value.
+    vi.stubEnv("OPENCODE_BIN", "");
   });
 
   afterEach(() => {
@@ -72,7 +76,7 @@ describe("serveManager", () => {
       expect(port).toBeGreaterThanOrEqual(14097);
       expect(port).toBeLessThanOrEqual(14200);
       expect(spawn).toHaveBeenCalledWith(
-        "opencode",
+        expect.stringMatching(/(^|\/)opencode$/),
         ["serve", "--port", port.toString()],
         expect.objectContaining({
           cwd: projectPath,
@@ -99,6 +103,76 @@ describe("serveManager", () => {
       try {
         await serveManager.spawnServe("/test/project");
         expect(vi.mocked(spawn).mock.calls[0]?.[0]).toBe(resolvedPath);
+      } finally {
+        rmSync(tempDir, { recursive: true, force: true });
+      }
+    });
+
+    it("should resolve from ~/.opencode/bin fallback when PATH lookup fails", async () => {
+      if (process.platform === "win32") return; // fallbacks are POSIX-only
+      const tempHome = mkdtempSync(join(tmpdir(), "remote-opencode-home-"));
+      const opencodeBin = join(tempHome, ".opencode", "bin");
+      const resolvedPath = join(opencodeBin, "opencode");
+
+      const fs = await import("node:fs");
+      fs.mkdirSync(opencodeBin, { recursive: true });
+      writeFileSync(resolvedPath, "#!/bin/sh\nexit 0\n");
+      vi.stubEnv("HOME", tempHome);
+      vi.stubEnv("PATH", "/definitely/not/here");
+
+      const mockProc = createMockProcess();
+      vi.mocked(spawn).mockReturnValue(mockProc);
+
+      try {
+        await serveManager.spawnServe("/test/project");
+        expect(vi.mocked(spawn).mock.calls[0]?.[0]).toBe(resolvedPath);
+      } finally {
+        rmSync(tempHome, { recursive: true, force: true });
+      }
+    });
+
+    it("should honor OPENCODE_BIN override over PATH and fallback dirs", async () => {
+      const tempDir = mkdtempSync(join(tmpdir(), "remote-opencode-override-"));
+      const overridePath = join(tempDir, "custom-opencode");
+      writeFileSync(overridePath, "#!/bin/sh\nexit 0\n");
+
+      // Also place a different binary on PATH so we can confirm the override wins.
+      const pathDir = mkdtempSync(join(tmpdir(), "remote-opencode-path-"));
+      const executableName =
+        process.platform === "win32" ? "opencode.cmd" : "opencode";
+      writeFileSync(join(pathDir, executableName), "@echo off");
+
+      vi.stubEnv("OPENCODE_BIN", overridePath);
+      vi.stubEnv("PATH", pathDir);
+
+      const mockProc = createMockProcess();
+      vi.mocked(spawn).mockReturnValue(mockProc);
+
+      try {
+        await serveManager.spawnServe("/test/project");
+        expect(vi.mocked(spawn).mock.calls[0]?.[0]).toBe(overridePath);
+      } finally {
+        rmSync(tempDir, { recursive: true, force: true });
+        rmSync(pathDir, { recursive: true, force: true });
+      }
+    });
+
+    it("should fall through to normal lookup when OPENCODE_BIN points at a missing file", async () => {
+      const tempDir = mkdtempSync(join(tmpdir(), "remote-opencode-stale-"));
+      const executableName =
+        process.platform === "win32" ? "opencode.cmd" : "opencode";
+      const onPath = join(tempDir, executableName);
+      writeFileSync(onPath, "@echo off");
+
+      vi.stubEnv("OPENCODE_BIN", "/definitely/not/here/opencode");
+      vi.stubEnv("PATH", tempDir);
+
+      const mockProc = createMockProcess();
+      vi.mocked(spawn).mockReturnValue(mockProc);
+
+      try {
+        await serveManager.spawnServe("/test/project");
+        expect(vi.mocked(spawn).mock.calls[0]?.[0]).toBe(onPath);
       } finally {
         rmSync(tempDir, { recursive: true, force: true });
       }
@@ -134,7 +208,7 @@ describe("serveManager", () => {
 
       expect(port).toBe(20000);
       expect(spawn).toHaveBeenCalledWith(
-        "opencode",
+        expect.stringMatching(/(^|\/)opencode$/),
         ["serve", "--port", "20000"],
         expect.anything(),
       );

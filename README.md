@@ -72,6 +72,8 @@ https://github.com/user-attachments/assets/59cf162a-ec86-41b5-a1f3-9b1379acd9fd
 - **OpenCode CLI** — Must be installed and working on your machine
 - **Discord Account** — With a server where you have admin permissions
 
+> If `opencode` lives somewhere unusual (custom prefix, asdf shim, nix store), set `OPENCODE_BIN` to its absolute path. Otherwise the bot looks for it on `PATH` and then falls back to `~/.opencode/bin`, `/opt/homebrew/bin`, and `/usr/local/bin`.
+
 ### Install via npm
 
 ```bash

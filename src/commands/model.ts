@@ -5,8 +5,9 @@ import {
   MessageFlags,
   ThreadChannel
 } from 'discord.js';
-import { execSync, exec } from 'node:child_process';
+import { execFile, execFileSync } from 'node:child_process';
 import * as dataStore from '../services/dataStore.js';
+import { resolveOpencodeCommand } from '../services/serveManager.js';
 import type { Command } from './index.js';
 import { sanitizeModel } from '../utils/stringUtils.js';
 
@@ -18,7 +19,8 @@ const CACHE_TTL_MS = 30_000;
 function refreshCacheAsync(): void {
   if (refreshInFlight) return;
   refreshInFlight = true;
-  exec('opencode models', { encoding: 'utf-8', timeout: 5000 }, (error, stdout) => {
+  const command = resolveOpencodeCommand();
+  execFile(command, ['models'], { encoding: 'utf-8', timeout: 5000 }, (error, stdout) => {
     refreshInFlight = false;
     if (!error && stdout) {
       cachedModels = stdout.split('\n').map(sanitizeModel).filter(m => m);
@@ -32,7 +34,8 @@ export function getCachedModels(): string[] {
   if (now - cacheTimestamp > CACHE_TTL_MS || cachedModels.length === 0) {
     if (cachedModels.length === 0) {
       try {
-        const output = execSync('opencode models', { encoding: 'utf-8', timeout: 5000 });
+        const command = resolveOpencodeCommand();
+        const output = execFileSync(command, ['models'], { encoding: 'utf-8', timeout: 5000 });
         cachedModels = output.split('\n').map(sanitizeModel).filter(m => m);
         cacheTimestamp = now;
       } catch { }
@@ -75,7 +78,8 @@ export const model: Command = {
     if (subcommand === 'list') {
       await interaction.deferReply({ flags: MessageFlags.Ephemeral });
       try {
-        const output = execSync('opencode models', { encoding: 'utf-8' });
+        const command = resolveOpencodeCommand();
+        const output = execFileSync(command, ['models'], { encoding: 'utf-8' });
         const models = output.split('\n').map(sanitizeModel).filter(m => m);
         
         if (models.length === 0) {
