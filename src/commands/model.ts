@@ -180,12 +180,10 @@ export const model: Command = {
     const filtered = models
       .filter(m => m.toLowerCase().includes(focused))
       .slice(0, 25)
-      .map(m => truncateModel(m, 100)); // Discord autocomplete name has 100-char limit
+      .map(m => ({ name: truncateModel(m, 100), value: m })); // Discord autocomplete *name* has 100-char limit, but preserve full model ID as value
 
     try {
-      await interaction.respond(
-        filtered.map(m => ({ name: m, value: m }))
-      );
+      await interaction.respond(filtered);
     } catch { }
   }
 };
