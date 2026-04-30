@@ -137,9 +137,18 @@ async function handleWorktreePR(interaction: ButtonInteraction, threadId: string
       sessionManager.clearSseClient(threadId);
 
       if (accumulatedText.trim()) {
-        (channel as any).send({ content: `✅ **PR Creation Complete**\n${accumulatedText.slice(0, 1990)}` }).catch(() => {});
+        const prefix = '✅ **PR Creation Complete**\n';
+        const maxContentLength = 2000 - prefix.length;
+        const truncated = accumulatedText.length > maxContentLength
+          ? accumulatedText.slice(0, maxContentLength - 3) + '...'
+          : accumulatedText;
+        (channel as any).send({ content: `${prefix}${truncated}` }).catch((err: Error) => {
+          console.error('Failed to send PR result to thread:', err.message);
+        });
       } else {
-        (channel as any).send({ content: '⚠️ PR creation completed but no output was received.' }).catch(() => {});
+        (channel as any).send({ content: '⚠️ PR creation completed but no output was received.' }).catch((err: Error) => {
+          console.error('Failed to send PR result to thread:', err.message);
+        });
       }
     });
 
