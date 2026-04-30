@@ -57,10 +57,11 @@ Also: never use `.catch(() => {})` — at minimum `console.error` the failure so
 ### Code Review with AI Agents
 
 When using autonomous coding agents (OpenCode, Claude Code, etc.) for code review:
-- **PASS DIFFS AS FILES**, not inline text. Inline diffs get parsed as git CLI arguments, causing cryptic failures.
+- **PASS DIFFS AS FILES**, not inline text. Inline diffs get parsed as CLI arguments, causing cryptic failures.
 - Generate the diff file: `git diff main -- path/to/file > /tmp/review.patch`
-- Tell the reviewer: `Read /tmp/review.patch. Review for bugs, code quality, correctness.`
-- Run 3+ reviewers in parallel for best coverage (Codex, Opus, Gemini Pro recommended)
+- Run via: `opencode run "Review this diff for bugs, code quality, correctness." --file /tmp/review.patch --model "PROVIDER/MODEL"`
+- DO NOT use `--prompt` (doesn't exist) or `--format` (exists but for output format, not review). Use the positional argument for instructions + `--file` for context.
+- Run 3+ reviewers in parallel for best coverage (Codex, Gemini Pro, Opus recommended)
 
 ### Files to Know
 
