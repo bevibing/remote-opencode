@@ -13,6 +13,7 @@ import * as worktreeManager from './worktreeManager.js';
 import { SSEClient } from './sseClient.js';
 import { formatOutput, formatOutputForMobile, buildContextHeader } from '../utils/messageFormatter.js';
 import { processNextInQueue } from './queueManager.js';
+import type { QuestionRequest } from '../types/index.js';
 
 export async function runPrompt(
   channel: TextBasedChannel, 
@@ -267,6 +268,48 @@ export async function runPrompt(
       })();
     });
     
+    sseClient.onQuestionAsked((request: QuestionRequest) => {
+      if (request.sessionID !== sessionId) return;
+
+      if (updateInterval) {
+        clearInterval(updateInterval);
+        updateInterval = null;
+      }
+
+      (async () => {
+        try {
+          const question = request.questions?.[0];
+          const header = question?.header ? `**${question.header}**` : '**OpenCode needs input**';
+          const body = question?.question ?? 'OpenCode is waiting for a response.';
+          const optionButtons = (question?.options ?? []).slice(0, 4).map((option, index) =>
+            new ButtonBuilder()
+              .setCustomId(`qanswer:${threadId}:${request.id}:${index}`)
+              .setLabel((option.label ?? `Option ${index + 1}`).slice(0, 80))
+              .setStyle(index === 0 ? ButtonStyle.Primary : ButtonStyle.Secondary)
+          );
+          const rejectButton = new ButtonBuilder()
+            .setCustomId(`qreject:${threadId}:${request.id}`)
+            .setLabel('Reject')
+            .setStyle(ButtonStyle.Danger);
+          const questionButtons = new ActionRowBuilder<ButtonBuilder>().addComponents(
+            ...optionButtons,
+            rejectButton,
+          );
+
+          const edited = await updateStreamMessage(
+            `${contextHeader}\n📌 **Prompt**: ${prompt}\n\n⏸️ **Waiting for OpenCode input**\n${header}\n\n${body.slice(0, 1500)}`,
+            [questionButtons],
+          );
+          if (!edited) {
+            await safeSend(`⏸️ OpenCode is waiting for input: ${header}`);
+          }
+        } catch (error) {
+          console.error('Error in onQuestionAsked:', error);
+          await safeSend('❌ OpenCode asked a question, but I could not render it in Discord.');
+        }
+      })();
+    });
+
     sseClient.onError((error) => {
       if (updateInterval) {
         clearInterval(updateInterval);
