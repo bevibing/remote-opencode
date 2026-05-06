@@ -181,6 +181,67 @@ export async function abortSession(
   return response.ok;
 }
 
+
+export async function listQuestions(port: number): Promise<unknown[]> {
+  const url = `http://127.0.0.1:${port}/question`;
+  const response = await fetch(url, {
+    method: "GET",
+    headers: getAuthHeaders(),
+  });
+
+  if (!response.ok) {
+    assertNotAuthError(response.status, "Failed to list questions");
+    throw new Error(`Failed to list questions: ${response.status} ${response.statusText}`);
+  }
+
+  const data = await response.json();
+  return Array.isArray(data) ? data : [];
+}
+
+export async function replyQuestion(
+  port: number,
+  requestId: string,
+  answers: string[][],
+): Promise<boolean> {
+  const url = `http://127.0.0.1:${port}/question/${requestId}/reply`;
+  const response = await fetch(url, {
+    method: "POST",
+    headers: jsonHeaders(),
+    body: JSON.stringify({ answers }),
+  });
+
+  if (!response.ok) {
+    const responseBody = await response.text();
+    assertNotAuthError(response.status, "Failed to answer question");
+    throw new Error(
+      `Failed to answer question: ${response.status} ${response.statusText} — ${responseBody}`,
+    );
+  }
+
+  return true;
+}
+
+export async function rejectQuestion(
+  port: number,
+  requestId: string,
+): Promise<boolean> {
+  const url = `http://127.0.0.1:${port}/question/${requestId}/reject`;
+  const response = await fetch(url, {
+    method: "POST",
+    headers: getAuthHeaders(),
+  });
+
+  if (!response.ok) {
+    const responseBody = await response.text();
+    assertNotAuthError(response.status, "Failed to reject question");
+    throw new Error(
+      `Failed to reject question: ${response.status} ${response.statusText} — ${responseBody}`,
+    );
+  }
+
+  return true;
+}
+
 export function getSessionForThread(
   threadId: string,
 ): { sessionId: string; projectPath: string; port: number } | undefined {

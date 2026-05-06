@@ -50,6 +50,29 @@ export interface SSEEvent {
   properties: Record<string, unknown>;
 }
 
+export interface QuestionOption {
+  label: string;
+  description?: string;
+}
+
+export interface QuestionItem {
+  question: string;
+  header?: string;
+  options?: QuestionOption[];
+  multiple?: boolean;
+  custom?: boolean;
+}
+
+export interface QuestionRequest {
+  id: string;
+  sessionID: string;
+  questions: QuestionItem[];
+  tool?: {
+    messageID: string;
+    callID: string;
+  };
+}
+
 export interface ServeInstance {
   port: number;
   process: ChildProcess;

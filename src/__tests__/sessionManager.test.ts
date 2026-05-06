@@ -53,6 +53,9 @@ import {
   getSessionInfo,
   listSessions,
   abortSession,
+  listQuestions,
+  replyQuestion,
+  rejectQuestion,
   ensureSessionForThread,
   getSessionForThread,
   setSessionForThread,
@@ -186,6 +189,54 @@ describe("SessionManager", () => {
 
       await expect(sendPrompt(3000, "ses_invalid", "test")).rejects.toThrow(
         "Failed to send prompt: 404 Not Found — Not Found",
+      );
+    });
+  });
+
+  describe("question helpers", () => {
+    it("should list pending questions", async () => {
+      const questions = [{ id: "que_123", sessionID: "ses_123", questions: [] }];
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => questions,
+      });
+
+      await expect(listQuestions(3000)).resolves.toEqual(questions);
+
+      expect(mockFetch).toHaveBeenCalledWith("http://127.0.0.1:3000/question", {
+        method: "GET",
+        headers: {},
+      });
+    });
+
+    it("should reply to a pending question", async () => {
+      mockFetch.mockResolvedValueOnce({ ok: true });
+
+      await expect(
+        replyQuestion(3000, "que_123", [["Approve plan"]]),
+      ).resolves.toBe(true);
+
+      expect(mockFetch).toHaveBeenCalledWith(
+        "http://127.0.0.1:3000/question/que_123/reply",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ answers: [["Approve plan"]] }),
+        },
+      );
+    });
+
+    it("should reject a pending question", async () => {
+      mockFetch.mockResolvedValueOnce({ ok: true });
+
+      await expect(rejectQuestion(3000, "que_123")).resolves.toBe(true);
+
+      expect(mockFetch).toHaveBeenCalledWith(
+        "http://127.0.0.1:3000/question/que_123/reject",
+        {
+          method: "POST",
+          headers: {},
+        },
       );
     });
   });
