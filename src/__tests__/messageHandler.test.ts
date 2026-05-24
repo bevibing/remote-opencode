@@ -33,6 +33,7 @@ function createMockMessage(overrides: Record<string, unknown> = {}) {
     },
     attachments: {
       first: vi.fn().mockReturnValue(undefined),
+      values: vi.fn().mockReturnValue([]),
     },
     react: reactFn,
     reply: replyFn,
@@ -277,6 +278,109 @@ describe('messageHandler - voice messages', () => {
       await handleMessageCreate(msg);
 
       expect(executionService.runPrompt).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('image attachment handling', () => {
+    it('should process image attachments with text prompt', async () => {
+      const msg = createMockMessage({
+        content: 'Analyze this image',
+        attachments: {
+          first: vi.fn().mockReturnValue(undefined),
+          values: vi.fn().mockReturnValue([
+            {
+              url: 'https://cdn.discordapp.com/attachments/123/image.png',
+              name: 'screenshot.png',
+              size: 102400,
+              contentType: 'image/png'
+            }
+          ])
+        }
+      });
+
+      await handleMessageCreate(msg);
+
+      expect(executionService.runPrompt).toHaveBeenCalledWith(
+        msg.channel,
+        'thread-1',
+        'Analyze this image\n\n[Image: screenshot.png (image/png, 100.0KB)]',
+        'channel-1'
+      );
+      expect(msg.react).toHaveBeenCalledWith('🖼️');
+    });
+
+    it('should process image attachments without text prompt', async () => {
+      const msg = createMockMessage({
+        content: '',
+        attachments: {
+          first: vi.fn().mockReturnValue(undefined),
+          values: vi.fn().mockReturnValue([
+            {
+              url: 'https://cdn.discordapp.com/attachments/123/image.jpg',
+              name: 'photo.jpg',
+              size: 204800,
+              contentType: 'image/jpeg'
+            }
+          ])
+        }
+      });
+
+      await handleMessageCreate(msg);
+
+      expect(executionService.runPrompt).toHaveBeenCalledWith(
+        msg.channel,
+        'thread-1',
+        '[Image: photo.jpg (image/jpeg, 200.0KB)]',
+        'channel-1'
+      );
+      expect(msg.react).toHaveBeenCalledWith('🖼️');
+    });
+
+    it('should queue image attachments when thread is busy', async () => {
+      vi.mocked(queueManager.isBusy).mockReturnValue(true);
+      const msg = createMockMessage({
+        content: 'Process these images',
+        attachments: {
+          first: vi.fn().mockReturnValue(undefined),
+          values: vi.fn().mockReturnValue([
+            {
+              url: 'https://cdn.discordapp.com/attachments/123/img1.png',
+              name: 'img1.png',
+              size: 51200,
+              contentType: 'image/png'
+            },
+            {
+              url: 'https://cdn.discordapp.com/attachments/123/img2.jpg',
+              name: 'img2.jpg',
+              size: 76800,
+              contentType: 'image/jpeg'
+            }
+          ])
+        }
+      });
+
+      await handleMessageCreate(msg);
+
+      expect(dataStore.addToQueue).toHaveBeenCalledWith('thread-1', {
+        prompt: 'Process these images',
+        userId: 'user-1',
+        timestamp: expect.any(Number),
+        imageAttachments: [
+          {
+            url: 'https://cdn.discordapp.com/attachments/123/img1.png',
+            name: 'img1.png',
+            size: 51200,
+            contentType: 'image/png'
+          },
+          {
+            url: 'https://cdn.discordapp.com/attachments/123/img2.jpg',
+            name: 'img2.jpg',
+            size: 76800,
+            contentType: 'image/jpeg'
+          }
+        ]
+      });
+      expect(msg.react).toHaveBeenCalledWith('📥');
     });
   });
 });

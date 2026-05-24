@@ -23,12 +23,20 @@ export interface DataStore {
   queueSettings?: Record<string, QueueSettings>;
 }
 
+export interface ImageAttachment {
+  url: string;
+  name: string;
+  size: number;
+  contentType: string | null;
+}
+
 export interface QueuedMessage {
   prompt: string;
   userId: string;
   timestamp: number;
   voiceAttachmentUrl?: string;
   voiceAttachmentSize?: number;
+  imageAttachments?: ImageAttachment[];
 }
 
 export interface QueueSettings {

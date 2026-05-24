@@ -25,6 +25,12 @@ async function safeRemoveReaction(message: Message, emoji: string): Promise<void
   }
 }
 
+function isImageAttachment(attachment: any): boolean {
+  const imageTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/svg+xml'];
+  return imageTypes.includes(attachment.contentType) || 
+         attachment.name?.match(/\.(jpg|jpeg|png|gif|webp|svg)$/i);
+}
+
 export async function handleMessageCreate(message: Message): Promise<void> {
   if (message.author.bot) return;
   if (message.system) return;
@@ -46,10 +52,15 @@ export async function handleMessageCreate(message: Message): Promise<void> {
   // Detect voice message before busy check so we can queue attachment metadata
   const isVoiceMessage = !prompt && isVoiceEnabled() && message.flags.has(MessageFlags.IsVoiceMessage);
   const voiceAttachment = isVoiceMessage ? message.attachments.first() : undefined;
+  
+  // Detect image attachments
+  const imageAttachments = message.attachments?.values 
+    ? Array.from(message.attachments.values()).filter(isImageAttachment)
+    : [];
 
-  if (!prompt && !voiceAttachment) return;
+  if (!prompt && !voiceAttachment && imageAttachments.length === 0) return;
 
-  // Check busy BEFORE STT — queue voice attachment metadata if busy
+  // Check busy BEFORE STT — queue attachment metadata if busy
   if (isBusy(threadId)) {
     if (voiceAttachment) {
       dataStore.addToQueue(threadId, {
@@ -58,6 +69,18 @@ export async function handleMessageCreate(message: Message): Promise<void> {
         timestamp: Date.now(),
         voiceAttachmentUrl: voiceAttachment.url,
         voiceAttachmentSize: voiceAttachment.size,
+      });
+    } else if (imageAttachments.length > 0) {
+      dataStore.addToQueue(threadId, {
+        prompt,
+        userId: message.author.id,
+        timestamp: Date.now(),
+        imageAttachments: imageAttachments.map(img => ({
+          url: img.url,
+          name: img.name,
+          size: img.size,
+          contentType: img.contentType
+        }))
       });
     } else {
       dataStore.addToQueue(threadId, {
@@ -88,6 +111,30 @@ export async function handleMessageCreate(message: Message): Promise<void> {
     }
     if (!prompt.trim()) {
       await safeReact(message, '❌');
+      return;
+    }
+  }
+
+  // Process image attachments
+  if (imageAttachments.length > 0) {
+    await safeReact(message, '🖼️');
+    try {
+      // Add image context to the prompt
+      const imageInfo = imageAttachments.map(img => 
+        `[Image: ${img.name} (${img.contentType}, ${(img.size / 1024).toFixed(1)}KB)]`
+      ).join('\n');
+      
+      if (prompt) {
+        prompt = `${prompt}\n\n${imageInfo}`;
+      } else {
+        prompt = imageInfo;
+      }
+      
+      await safeRemoveReaction(message, '🖼️');
+    } catch (error) {
+      console.error('[Image Handler] Failed to process images:', error instanceof Error ? error.message : error);
+      await safeReact(message, '❌');
+      await message.reply({ content: '❌ Failed to process image attachments.' }).catch(() => {});
       return;
     }
   }

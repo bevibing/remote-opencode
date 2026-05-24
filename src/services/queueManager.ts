@@ -35,6 +35,19 @@ export async function processNextInQueue(
     }
   }
 
+  // Handle queued image attachments
+  if (next.imageAttachments && next.imageAttachments.length > 0) {
+    const imageInfo = next.imageAttachments.map(img => 
+      `[Image: ${img.name} (${img.contentType}, ${(img.size / 1024).toFixed(1)}KB)]`
+    ).join('\n');
+    
+    if (prompt) {
+      prompt = `${prompt}\n\n${imageInfo}`;
+    } else {
+      prompt = imageInfo;
+    }
+  }
+
   if (!prompt) return;
 
   // Visual indication that we are starting the next one
