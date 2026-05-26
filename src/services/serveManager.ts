@@ -180,10 +180,16 @@ export async function spawnServe(
   console.log(`[opencode] Spawning: ${command} ${args.join(" ")}`);
   console.log(`[opencode] Working directory: ${projectPath}`);
 
-  const child = spawn(command, args, {
+  // Windows: wrap command in quotes when it contains spaces (shell:true path splitting issue)
+  const windowsCmd = process.platform === "win32" && command.includes(" ")
+    ? `"${command}"`
+    : command;
+
+  const child = spawn(windowsCmd, args, {
     cwd: projectPath,
     env,
     stdio: ["inherit", "pipe", "pipe"],
+    shell: true,
   });
 
   const instance: ServeInstance = {
