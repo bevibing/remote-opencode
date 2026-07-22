@@ -116,13 +116,14 @@ export interface FormattedResult {
   chunks: string[];
 }
 
-const MESSAGE_MAX_LENGTH = 1900;
+export const MESSAGE_MAX_LENGTH = 1900;
+export const DISCORD_MAX_LENGTH = 2000;
 
 /**
  * Split text into chunks that fit within Discord's message limit.
  * Splits on paragraph boundaries (double newline) when possible.
  */
-function splitIntoChunks(text: string, maxLength: number): string[] {
+export function splitIntoChunks(text: string, maxLength: number): string[] {
   if (text.length <= maxLength) {
     return [text];
   }
@@ -156,11 +157,52 @@ function splitIntoChunks(text: string, maxLength: number): string[] {
 
 export function formatOutputForMobile(buffer: string): FormattedResult {
   const parsed = parseOpenCodeOutput(buffer);
-  
+
   if (!parsed.trim()) {
     return { chunks: ['⏳ Processing...'] };
   }
 
   const chunks = splitIntoChunks(parsed, MESSAGE_MAX_LENGTH);
   return { chunks };
+}
+
+export interface DiscordTemplateChunks {
+  /** Body to send via `message.edit()`. Always fits within `maxLength`. */
+  prefixBody: string;
+  /**
+   * Remaining chunks (overflow) that must be sent as separate follow-up messages
+   * via `channel.send()`. Each chunk is already under `maxLength`.
+   * Empty when the body fit entirely inside the prefix.
+   */
+  overflowChunks: string[];
+}
+
+/**
+ * Build a Discord-safe edit body from the streaming template
+ * (header + prompt + body) and return any overflow as separate chunks.
+ *
+ * Keeps the edited message under Discord's 2000-char limit while still showing
+ * the full prompt and as much of the body as fits, with the rest delivered as
+ * follow-up messages so the user never loses information.
+ */
+export function splitForDiscordTemplate(
+  { header, prompt, body, maxLength = DISCORD_MAX_LENGTH }:
+  { header: string; prompt: string; body: string; maxLength?: number },
+): DiscordTemplateChunks {
+  const prefixTemplate = `${header}\n📌 **Prompt**: ${prompt}\n\n`;
+  const overhead = prefixTemplate.length;
+  // Reserve a few chars for the "\n..." ellipsis when truncating.
+  const footerReserve = 4;
+  const bodyBudget = Math.max(100, maxLength - overhead - footerReserve);
+
+  if (body.length <= bodyBudget) {
+    return { prefixBody: `${prefixTemplate}${body}`, overflowChunks: [] };
+  }
+
+  const truncated = body.slice(0, bodyBudget);
+  const rest = body.slice(bodyBudget);
+  return {
+    prefixBody: `${prefixTemplate}${truncated}\n...`,
+    overflowChunks: splitIntoChunks(rest, maxLength),
+  };
 }

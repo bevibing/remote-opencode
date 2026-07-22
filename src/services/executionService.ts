@@ -1,6 +1,6 @@
-import { 
-  ActionRowBuilder, 
-  ButtonBuilder, 
+import {
+  ActionRowBuilder,
+  ButtonBuilder,
   ButtonStyle,
   Message,
   TextBasedChannel,
@@ -11,7 +11,13 @@ import * as sessionManager from './sessionManager.js';
 import * as serveManager from './serveManager.js';
 import * as worktreeManager from './worktreeManager.js';
 import { SSEClient } from './sseClient.js';
-import { formatOutput, formatOutputForMobile, buildContextHeader } from '../utils/messageFormatter.js';
+import {
+  formatOutput,
+  formatOutputForMobile,
+  buildContextHeader,
+  splitForDiscordTemplate,
+  DISCORD_MAX_LENGTH,
+} from '../utils/messageFormatter.js';
 import { processNextInQueue } from './queueManager.js';
 
 export async function runPrompt(
@@ -93,12 +99,29 @@ export async function runPrompt(
     );
   
   let streamMessage: Message;
+  // Defensively truncate the prompt in the initial message so very long
+  // user prompts don't push the starting message past Discord's 2000-char
+  // limit and cause `channel.send` to throw before we get anywhere.
+  const safePrompt = prompt.length > 1500
+    ? `${prompt.slice(0, 1500)}… (truncated)`
+    : prompt;
+  const initialContent = `${contextHeader}\n📌 **Prompt**: ${safePrompt}\n\n🚀 Starting OpenCode server...`;
   try {
     streamMessage = await (channel as any).send({
-      content: `${contextHeader}\n📌 **Prompt**: ${prompt}\n\n🚀 Starting OpenCode server...`,
+      content: initialContent.length <= DISCORD_MAX_LENGTH
+        ? initialContent
+        : `${contextHeader}\n📌 **Prompt**: ${safePrompt}\n\n🚀 Starting OpenCode server...`,
       components: [buttons]
     });
-  } catch {
+  } catch (error) {
+    console.error('Failed to send initial stream message:', error instanceof Error ? error.message : error);
+    try {
+      await (channel as any).send(
+        `❌ Could not start: prompt is too long for Discord (max ~${DISCORD_MAX_LENGTH} chars).`,
+      );
+    } catch {
+      // Nothing more we can do; the channel is unreachable.
+    }
     return;
   }
   
@@ -110,15 +133,73 @@ export async function runPrompt(
   let tick = 0;
   let promptSent = false;
   let hasSessionError = false;
+  // Mitigation for Discord REST timeouts under sustained streaming:
+  // discord.js's SequentialHandler queues edits on the same bucket, and
+  // undici's default connectTimeout is 10s. If a single edit stalls
+  // (Cloudflare keep-alive drop, transient network blip, etc.) every
+  // subsequent 1Hz tick piles another request into the queue and they all
+  // timeout in cascade, leaving the stream message frozen.
+  //   1. We skip interval ticks while an edit is still in flight, so the
+  //      SequentialHandler queue cannot grow unbounded.
+  //   2. We race each edit against an explicit 8s timeout so a stuck edit
+  //      fails fast and the next tick can try again with a fresh connection
+  //      instead of waiting for undici's 10s default.
+  const STREAM_EDIT_TIMEOUT_MS = 8000;
+  let streamEditInFlight = false;
   const spinner = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
-  
-  const updateStreamMessage = async (content: string, components: ActionRowBuilder<ButtonBuilder>[]): Promise<boolean> => {
+
+  const updateStreamMessage = async (body: string, components: ActionRowBuilder<ButtonBuilder>[]): Promise<boolean> => {
+    if (streamEditInFlight) {
+      // Another edit is still pending in discord.js's queue — drop this tick.
+      // The in-flight edit will complete (or fail fast via the timeout) and
+      // the next tick will retry with fresh content.
+      return false;
+    }
+    streamEditInFlight = true;
+    let timeoutHandle: NodeJS.Timeout | null = null;
     try {
-      await streamMessage.edit({ content, components });
+      const { prefixBody, overflowChunks } = splitForDiscordTemplate({
+        header: contextHeader,
+        prompt,
+        body,
+      });
+      // Race the edit against a hard timeout so a stuck REST request can't
+      // hold streamEditInFlight forever. discord.js's edit() does not
+      // natively accept AbortSignal, so we race against a timeout that
+      // rejects if the edit hangs longer than STREAM_EDIT_TIMEOUT_MS.
+      let timedOut = false;
+      const editPromise = streamMessage.edit({ content: prefixBody, components });
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        timeoutHandle = setTimeout(() => {
+          timedOut = true;
+          reject(new Error(`stream edit timed out after ${STREAM_EDIT_TIMEOUT_MS}ms`));
+        }, STREAM_EDIT_TIMEOUT_MS);
+      });
+      try {
+        await Promise.race([editPromise, timeoutPromise]);
+      } finally {
+        if (timeoutHandle) clearTimeout(timeoutHandle);
+      }
+      if (timedOut) {
+        // The underlying REST request is still pending in discord.js's queue
+        // and will eventually resolve/reject on its own; we just stop waiting
+        // so the next interval tick can proceed.
+        console.error(`stream edit exceeded ${STREAM_EDIT_TIMEOUT_MS}ms; abandoning wait and continuing`);
+        return false;
+      }
+      for (const chunk of overflowChunks) {
+        try {
+          await (channel as any).send({ content: chunk });
+        } catch (sendErr) {
+          console.error('Failed to send overflow chunk:', sendErr instanceof Error ? sendErr.message : sendErr);
+        }
+      }
       return true;
     } catch (error) {
       console.error('Failed to edit stream message:', error instanceof Error ? error.message : error);
       return false;
+    } finally {
+      streamEditInFlight = false;
     }
   };
 
@@ -135,7 +216,7 @@ export async function runPrompt(
   try {
     port = await serveManager.spawnServe(effectivePath, preferredModel);
     
-    await updateStreamMessage(`${contextHeader}\n📌 **Prompt**: ${prompt}\n\n⏳ Waiting for OpenCode server...`, [buttons]);
+    await updateStreamMessage('⏳ Waiting for OpenCode server...', [buttons]);
     await serveManager.waitForReady(port, 30000, effectivePath, preferredModel);
     
     const settings = dataStore.getQueueSettings(threadId);
@@ -184,8 +265,8 @@ export async function runPrompt(
 
           if (!accumulatedText.trim()) {
             const edited = await updateStreamMessage(
-              `${contextHeader}\n📌 **Prompt**: ${prompt}\n\n⚠️ No output received — the model may have encountered an issue.`,
-              [disabledButtons]
+              '⚠️ No output received — the model may have encountered an issue.',
+              [disabledButtons],
             );
             if (!edited) {
               await safeSend('⚠️ No output received — the model may have encountered an issue.');
@@ -193,18 +274,30 @@ export async function runPrompt(
             await safeSend('⚠️ Done (no output received)');
           } else {
             const result = formatOutputForMobile(accumulatedText);
-            
-            const editSuccess = await updateStreamMessage(
-              `${contextHeader}\n📌 **Prompt**: ${prompt}\n\n${result.chunks[0]}`,
-              [disabledButtons]
-            );
-            
-            // If edit failed (e.g., content exceeds Discord's 2000-char limit), send all chunks as new messages
-            const startIndex = editSuccess ? 1 : 0;
-            for (let i = startIndex; i < result.chunks.length; i++) {
-              await safeSend(result.chunks[i]);
+            const fullBody = result.chunks.join('\n\n');
+            const { prefixBody, overflowChunks } = splitForDiscordTemplate({
+              header: contextHeader,
+              prompt,
+              body: fullBody,
+            });
+
+            const editSuccess = await streamMessage
+              .edit({ content: prefixBody, components: [disabledButtons] })
+              .then(() => true)
+              .catch((err) => {
+                console.error(
+                  'Failed to edit stream message:',
+                  err instanceof Error ? err.message : err,
+                );
+                return false;
+              });
+
+            const remaining = overflowChunks.length > 0
+              ? overflowChunks
+              : (editSuccess ? result.chunks.slice(1) : result.chunks);
+            for (const chunk of remaining) {
+              await safeSend(chunk);
             }
-            
             await safeSend('✅ Done');
           }
           
@@ -243,8 +336,8 @@ export async function runPrompt(
             );
           
           const edited = await updateStreamMessage(
-            `${contextHeader}\n📌 **Prompt**: ${prompt}\n\n❌ **Error**: ${errorMsg}`,
-            [disabledButtons]
+            `❌ **Error**: ${errorMsg}`,
+            [disabledButtons],
           );
           if (!edited) {
             await safeSend(`❌ **Error**: ${errorMsg}`);
@@ -275,7 +368,7 @@ export async function runPrompt(
       
       (async () => {
         try {
-          const edited = await updateStreamMessage(`${contextHeader}\n📌 **Prompt**: ${prompt}\n\n❌ Connection error: ${error.message}`, []);
+          const edited = await updateStreamMessage(`❌ Connection error: ${error.message}`, []);
           if (!edited) {
             await safeSend(`❌ Connection error: ${error.message}`);
           }
@@ -303,20 +396,20 @@ export async function runPrompt(
         const formatted = formatOutput(accumulatedText);
         const spinnerChar = spinner[tick % spinner.length];
         const newContent = formatted || 'Processing...';
-        
+
         if (newContent !== lastContent || tick % 2 === 0) {
           lastContent = newContent;
           await updateStreamMessage(
-            `${contextHeader}\n📌 **Prompt**: ${prompt}\n\n${spinnerChar} **Running...**\n${newContent}`,
-            [buttons]
+            `${spinnerChar} **Running...**\n${newContent}`,
+            [buttons],
           );
         }
       } catch (error) {
         console.error('Error in stream update interval:', error instanceof Error ? error.message : error);
       }
     }, 1000);
-    
-    await updateStreamMessage(`${contextHeader}\n📌 **Prompt**: ${prompt}\n\n📝 Sending prompt...`, [buttons]);
+
+    await updateStreamMessage('📝 Sending prompt...', [buttons]);
     await sessionManager.sendPrompt(port, sessionId, prompt, preferredModel);
     promptSent = true;
     
@@ -326,7 +419,7 @@ export async function runPrompt(
     }
     
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-    const edited = await updateStreamMessage(`${contextHeader}\n📌 **Prompt**: ${prompt}\n\n❌ OpenCode execution failed: ${errorMessage}`, []);
+    const edited = await updateStreamMessage(`❌ OpenCode execution failed: ${errorMessage}`, []);
     if (!edited) {
       await safeSend(`❌ OpenCode execution failed: ${errorMessage}`);
     }

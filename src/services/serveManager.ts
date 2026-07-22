@@ -8,6 +8,8 @@ import { getAuthHeaders, isAuthEnabled } from "./serverAuth.js";
 
 const DEFAULT_PORT_MIN = 14097;
 const DEFAULT_PORT_MAX = 14200;
+const READINESS_PROBE_TIMEOUT_MS = 5000;
+const DEFAULT_READINESS_TIMEOUT_MS = 60000;
 const WINDOWS_OPENCODE_COMMANDS = ["opencode.cmd", "opencode.exe", "opencode"];
 const POSIX_OPENCODE_COMMANDS = ["opencode"];
 
@@ -268,7 +270,7 @@ export function stopServe(projectPath: string, model?: string): boolean {
 
 export async function waitForReady(
   port: number,
-  timeout: number = 30000,
+  timeout: number = DEFAULT_READINESS_TIMEOUT_MS,
   projectPath?: string,
   model?: string,
 ): Promise<void> {
@@ -294,7 +296,13 @@ export async function waitForReady(
     }
 
     try {
-      const response = await fetch(url, { headers: getAuthHeaders() });
+      const response = await fetch(url, {
+        headers: getAuthHeaders(),
+        // Per-probe timeout so a single slow/hanging request can't eat the
+        // entire wait budget. We retry every second until either the server
+        // responds OK or the outer timeout fires.
+        signal: AbortSignal.timeout(READINESS_PROBE_TIMEOUT_MS),
+      });
       if (response.ok) {
         return;
       }
@@ -314,6 +322,7 @@ export async function waitForReady(
       ) {
         throw err;
       }
+      // AbortSignal.timeout, ECONNREFUSED, etc. — fall through to retry.
     }
     await new Promise((resolve) => setTimeout(resolve, 1000));
   }
@@ -331,7 +340,7 @@ export async function waitForReady(
   }
 
   throw new Error(
-    `Service at port ${port} failed to become ready within ${timeout}ms. Check if 'opencode serve' is working correctly.`,
+    `Service at port ${port} failed to become ready within ${timeout}ms. The opencode server may still be loading models — try again in a few seconds. Check 'opencode serve' logs if the problem persists.`,
   );
 }
 

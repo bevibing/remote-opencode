@@ -320,9 +320,14 @@ describe("serveManager", () => {
       await vi.runAllTimersAsync();
 
       await expect(promise).resolves.toBeUndefined();
-      expect(fetch).toHaveBeenCalledWith("http://127.0.0.1:14097/session", {
-        headers: {},
-      });
+      expect(fetch).toHaveBeenCalledWith(
+        "http://127.0.0.1:14097/session",
+        expect.objectContaining({ headers: {} }),
+      );
+      expect(fetch).toHaveBeenCalledWith(
+        "http://127.0.0.1:14097/session",
+        expect.objectContaining({ signal: expect.any(AbortSignal) }),
+      );
     });
 
     it("should retry if fetch fails or returns not ok", async () => {
@@ -341,13 +346,53 @@ describe("serveManager", () => {
       expect(fetch).toHaveBeenCalledTimes(3);
     });
 
+    it("should retry on AbortSignal timeout without aborting the wait loop", async () => {
+      vi.mocked(fetch)
+        .mockRejectedValueOnce(
+          new DOMException("The operation was aborted due to timeout", "TimeoutError"),
+        )
+        .mockRejectedValueOnce(
+          new DOMException("The operation was aborted due to timeout", "TimeoutError"),
+        )
+        .mockResolvedValueOnce({ ok: true } as Response);
+
+      const promise = serveManager.waitForReady(14097);
+
+      await vi.advanceTimersByTimeAsync(0);
+      await vi.advanceTimersByTimeAsync(1000);
+      await vi.advanceTimersByTimeAsync(1000);
+
+      await expect(promise).resolves.toBeUndefined();
+      expect(fetch).toHaveBeenCalledTimes(3);
+    });
+
+    it("should tolerate a slow cold-start longer than the legacy 30s default", async () => {
+      // Server takes ~45s of simulated polling before becoming ready.
+      // With the legacy 30s default this would fail; with the new 60s default
+      // it should succeed.
+      let calls = 0;
+      vi.mocked(fetch).mockImplementation(async () => {
+        calls++;
+        if (calls < 45) return { ok: false } as Response;
+        return { ok: true } as Response;
+      });
+
+      const promise = serveManager.waitForReady(14097);
+      for (let i = 0; i < 46; i++) {
+        await vi.advanceTimersByTimeAsync(1000);
+      }
+
+      await expect(promise).resolves.toBeUndefined();
+      expect(calls).toBe(45);
+    });
+
     it("should throw error on timeout", async () => {
       vi.mocked(fetch).mockRejectedValue(new Error("Connection refused"));
 
       const promise = serveManager.waitForReady(14097, 1000);
 
       const wrappedPromise = expect(promise).rejects.toThrow(
-        "Service at port 14097 failed to become ready within 1000ms. Check if 'opencode serve' is working correctly.",
+        "Service at port 14097 failed to become ready within 1000ms",
       );
 
       await vi.advanceTimersByTimeAsync(1500);
@@ -418,9 +463,10 @@ describe("serveManager", () => {
         await expect(promise).resolves.toBeUndefined();
 
         const expected = `Basic ${Buffer.from("opencode:s3cret").toString("base64")}`;
-        expect(fetch).toHaveBeenCalledWith("http://127.0.0.1:14097/session", {
-          headers: { Authorization: expected },
-        });
+        expect(fetch).toHaveBeenCalledWith(
+          "http://127.0.0.1:14097/session",
+          expect.objectContaining({ headers: { Authorization: expected } }),
+        );
       });
 
       it("fails fast with a clear error when readiness probe returns 401", async () => {
