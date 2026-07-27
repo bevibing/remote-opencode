@@ -13,6 +13,12 @@ import * as worktreeManager from './worktreeManager.js';
 import { SSEClient } from './sseClient.js';
 import { formatOutput, formatOutputForMobile, buildContextHeader } from '../utils/messageFormatter.js';
 import { processNextInQueue } from './queueManager.js';
+import type { QuestionRequest } from '../types/index.js';
+import {
+  buildQuestionText,
+  buildQuestionComponents,
+  setPendingAnswers
+} from '../handlers/buttonHandler.js';
 
 export async function runPrompt(
   channel: TextBasedChannel, 
@@ -112,7 +118,7 @@ export async function runPrompt(
   let hasSessionError = false;
   const spinner = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
   
-  const updateStreamMessage = async (content: string, components: ActionRowBuilder<ButtonBuilder>[]): Promise<boolean> => {
+  const updateStreamMessage = async (content: string, components: ActionRowBuilder<any>[]): Promise<boolean> => {
     try {
       await streamMessage.edit({ content, components });
       return true;
@@ -267,6 +273,39 @@ export async function runPrompt(
       })();
     });
     
+    sseClient.onQuestionAsked((request: QuestionRequest) => {
+      if (request.sessionID !== sessionId) return;
+
+      if (updateInterval) {
+        clearInterval(updateInterval);
+        updateInterval = null;
+      }
+
+      (async () => {
+        try {
+          const questions = request.questions ?? [];
+          if (questions.length === 0) return;
+
+          const answerKey = `${request.id}:${threadId}`;
+          const initialSelections = new Map<number, string[]>();
+          questions.forEach((_, i) => initialSelections.set(i, []));
+          setPendingAnswers(answerKey, initialSelections);
+
+          const questionText = buildQuestionText(questions, initialSelections, 0, questions.length);
+          const components = buildQuestionComponents(threadId, request, initialSelections, false, 0);
+
+          const content = `${contextHeader}\n📌 **Prompt**: ${prompt}\n\n${questionText}`;
+          const edited = await updateStreamMessage(content, components);
+          if (!edited) {
+            await safeSend(`⏸️ OpenCode is waiting for input`);
+          }
+        } catch (error) {
+          console.error('Error in onQuestionAsked:', error);
+          await safeSend('❌ OpenCode asked a question, but I could not render it in Discord.');
+        }
+      })();
+    });
+
     sseClient.onError((error) => {
       if (updateInterval) {
         clearInterval(updateInterval);

@@ -336,6 +336,60 @@ describe("SSEClient", () => {
     });
   });
 
+  describe("onQuestionAsked", () => {
+    it("should trigger callback for question.asked events", () => {
+      const callback = vi.fn();
+      client.connect("http://127.0.0.1:3000");
+      client.onQuestionAsked(callback);
+
+      const messageHandler =
+        mockEventSourceInstance.addEventListener.mock.calls.find(
+          (call: any) => call[0] === "message",
+        )?.[1];
+
+      const request = {
+        id: "que_123",
+        sessionID: "session-1",
+        questions: [
+          {
+            header: "Plan Approval",
+            question: "Approve this plan?",
+            options: [{ label: "Approve plan" }, { label: "Revise plan" }],
+          },
+        ],
+      };
+
+      messageHandler({
+        data: JSON.stringify({
+          type: "question.asked",
+          properties: request,
+        }),
+      });
+
+      expect(callback).toHaveBeenCalledWith(request);
+    });
+
+    it("should not trigger callback for malformed question.asked events", () => {
+      const callback = vi.fn();
+      client.connect("http://127.0.0.1:3000");
+      client.onQuestionAsked(callback);
+
+      const messageHandler =
+        mockEventSourceInstance.addEventListener.mock.calls.find(
+          (call: any) => call[0] === "message",
+        )?.[1];
+
+      messageHandler({
+        data: JSON.stringify({
+          type: "question.asked",
+          properties: { id: "que_123" },
+        }),
+      });
+
+      expect(callback).not.toHaveBeenCalled();
+    });
+  });
+
   describe("onError", () => {
     it("should trigger callback on error", () => {
       const callback = vi.fn();

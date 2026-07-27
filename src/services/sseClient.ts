@@ -1,5 +1,5 @@
 import { EventSource } from "eventsource";
-import type { TextPart, SSEEvent, SessionErrorInfo } from "../types/index.js";
+import type { TextPart, SSEEvent, SessionErrorInfo, QuestionRequest } from "../types/index.js";
 import { getAuthHeaders } from "./serverAuth.js";
 
 type PartUpdatedCallback = (part: TextPart) => void;
@@ -8,6 +8,7 @@ type SessionErrorCallback = (
   sessionId: string,
   error: SessionErrorInfo,
 ) => void;
+type QuestionAskedCallback = (request: QuestionRequest) => void;
 type ErrorCallback = (error: Error) => void;
 
 export class SSEClient {
@@ -15,6 +16,7 @@ export class SSEClient {
   private partUpdatedCallbacks: PartUpdatedCallback[] = [];
   private sessionIdleCallbacks: SessionIdleCallback[] = [];
   private sessionErrorCallbacks: SessionErrorCallback[] = [];
+  private questionAskedCallbacks: QuestionAskedCallback[] = [];
   private errorCallbacks: ErrorCallback[] = [];
 
   connect(baseUrl: string): void {
@@ -64,6 +66,10 @@ export class SSEClient {
     this.sessionErrorCallbacks.push(callback);
   }
 
+  onQuestionAsked(callback: QuestionAskedCallback): void {
+    this.questionAskedCallbacks.push(callback);
+  }
+
   onError(callback: ErrorCallback): void {
     this.errorCallbacks.push(callback);
   }
@@ -106,6 +112,11 @@ export class SSEClient {
         | undefined;
       if (sessionID && error) {
         this.sessionErrorCallbacks.forEach((cb) => cb(sessionID, error));
+      }
+    } else if (event.type === "question.asked") {
+      const request = event.properties as unknown as QuestionRequest;
+      if (request?.sessionID && request?.id) {
+        this.questionAskedCallbacks.forEach((cb) => cb(request));
       }
     }
   }

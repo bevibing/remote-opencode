@@ -313,6 +313,8 @@ describe("serveManager", () => {
     });
 
     it("should resolve when fetch returns ok", async () => {
+      const origPwd = process.env.OPENCODE_SERVER_PASSWORD;
+      delete process.env.OPENCODE_SERVER_PASSWORD;
       vi.mocked(fetch).mockResolvedValue({ ok: true } as Response);
 
       const promise = serveManager.waitForReady(14097);
@@ -323,6 +325,8 @@ describe("serveManager", () => {
       expect(fetch).toHaveBeenCalledWith("http://127.0.0.1:14097/session", {
         headers: {},
       });
+      if (origPwd === undefined) delete process.env.OPENCODE_SERVER_PASSWORD;
+      else process.env.OPENCODE_SERVER_PASSWORD = origPwd;
     });
 
     it("should retry if fetch fails or returns not ok", async () => {
@@ -440,6 +444,7 @@ describe("serveManager", () => {
 
       it("fails fast with a clear error when readiness probe returns 401 and password is unset", async () => {
         vi.useRealTimers();
+        delete process.env.OPENCODE_SERVER_PASSWORD;
         vi.mocked(fetch).mockResolvedValue({
           ok: false,
           status: 401,
