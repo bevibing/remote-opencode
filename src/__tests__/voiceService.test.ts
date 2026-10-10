@@ -1,13 +1,28 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import * as configStore from '../services/configStore.js';
+import { execFile } from 'node:child_process';
+import { existsSync } from 'node:fs';
 
-vi.mock('../services/configStore.js');
+vi.mock('node:child_process', () => ({ execFile: vi.fn() }));
+vi.mock('node:fs', () => ({
+  existsSync: vi.fn(),
+  mkdtempSync: vi.fn(() => '/tmp/opencode-handy-test'),
+  writeFileSync: vi.fn(),
+  rmSync: vi.fn(),
+}));
+vi.mock('node:module', async (importOriginal) => ({
+  ...(await importOriginal()),
+  createRequire: () => () => '/usr/bin/ffmpeg',
+}));
+
+const mockExecFile = vi.mocked(execFile);
+const mockExistsSync = vi.mocked(existsSync);
 
 // Mock global fetch
 const mockFetch = vi.fn();
 vi.stubGlobal('fetch', mockFetch);
 
-// Must import after mocks are set up
+vi.stubEnv('HANDY_BIN', '/usr/bin/handy');
+
 const { isVoiceEnabled, transcribe } = await import('../services/voiceService.js');
 
 describe('voiceService', () => {
@@ -20,18 +35,13 @@ describe('voiceService', () => {
   });
 
   describe('isVoiceEnabled', () => {
-    it('should return true when API key is configured', () => {
-      vi.mocked(configStore.getOpenAIApiKey).mockReturnValue('sk-test-key');
+    it('should return true when Handy binary exists', () => {
+      mockExistsSync.mockReturnValue(true);
       expect(isVoiceEnabled()).toBe(true);
     });
 
-    it('should return false when API key is not configured', () => {
-      vi.mocked(configStore.getOpenAIApiKey).mockReturnValue(undefined);
-      expect(isVoiceEnabled()).toBe(false);
-    });
-
-    it('should return false when API key is empty string', () => {
-      vi.mocked(configStore.getOpenAIApiKey).mockReturnValue('');
+    it('should return false when Handy binary is missing', () => {
+      mockExistsSync.mockReturnValue(false);
       expect(isVoiceEnabled()).toBe(false);
     });
   });
@@ -47,41 +57,41 @@ describe('voiceService', () => {
       } as unknown as Response);
     }
 
-    function mockSuccessfulWhisper(text: string) {
-      mockFetch.mockResolvedValueOnce({
-        ok: true,
-        text: () => Promise.resolve(text),
-      } as unknown as Response);
+    function mockHandyOutput(json: string) {
+      mockExecFile.mockImplementation(((file: unknown, _args: unknown, _opts: unknown, cb: unknown) => {
+        if (file === '/usr/bin/ffmpeg') {
+          (cb as (err: Error | null, stdout: string, stderr: string) => void)(null, '', '');
+        } else {
+          (cb as (err: Error | null, stdout: string, stderr: string) => void)(null, json, '');
+        }
+        return {} as never;
+      }) as never);
     }
 
     beforeEach(() => {
-      vi.mocked(configStore.getOpenAIApiKey).mockReturnValue('sk-test-key');
+      mockExistsSync.mockReturnValue(true);
     });
 
-    it('should transcribe audio successfully', async () => {
+    it('should transcribe audio successfully with Handy', async () => {
       mockSuccessfulDownload();
-      mockSuccessfulWhisper('Hello world');
+      mockHandyOutput('{"text":"Hola mundo","model":"parakeet"}');
 
       const result = await transcribe(fakeAttachmentUrl, 1024);
 
-      expect(result).toBe('Hello world');
-      // First call: Discord CDN download
-      expect(mockFetch).toHaveBeenCalledTimes(2);
+      expect(result).toBe('Hola mundo');
+      expect(mockFetch).toHaveBeenCalledTimes(1);
       expect(mockFetch.mock.calls[0][0]).toBe(fakeAttachmentUrl);
-      // Second call: Whisper API
-      expect(mockFetch.mock.calls[1][0]).toBe('https://api.openai.com/v1/audio/transcriptions');
-      expect(mockFetch.mock.calls[1][1]).toMatchObject({
-        method: 'POST',
-        headers: { Authorization: 'Bearer sk-test-key' },
-      });
+      expect(mockExecFile).toHaveBeenCalledTimes(2);
+      expect(mockExecFile.mock.calls[0][0]).toBe('/usr/bin/ffmpeg');
+      expect(mockExecFile.mock.calls[1][0]).toBe('/usr/bin/handy');
     });
 
     it('should trim whitespace from transcription result', async () => {
       mockSuccessfulDownload();
-      mockSuccessfulWhisper('  Hello world  \n');
+      mockHandyOutput('{"text":"  Hola mundo  \\n"}');
 
       const result = await transcribe(fakeAttachmentUrl);
-      expect(result).toBe('Hello world');
+      expect(result).toBe('Hola mundo');
     });
 
     it('should throw when file size exceeds 25MB limit', async () => {
@@ -90,9 +100,9 @@ describe('voiceService', () => {
       expect(mockFetch).not.toHaveBeenCalled();
     });
 
-    it('should throw when API key is not configured', async () => {
-      vi.mocked(configStore.getOpenAIApiKey).mockReturnValue(undefined);
-      await expect(transcribe(fakeAttachmentUrl)).rejects.toThrow('OpenAI API key is not configured');
+    it('should throw when Handy binary is missing', async () => {
+      mockExistsSync.mockReturnValue(false);
+      await expect(transcribe(fakeAttachmentUrl)).rejects.toThrow('Handy binary not found');
       expect(mockFetch).not.toHaveBeenCalled();
     });
 
@@ -105,36 +115,18 @@ describe('voiceService', () => {
       await expect(transcribe(fakeAttachmentUrl)).rejects.toThrow('Failed to download audio: HTTP 404');
     });
 
-    it('should throw AUTH_FAILURE when Whisper returns 401', async () => {
+    it('should throw when Handy returns empty transcription', async () => {
       mockSuccessfulDownload();
-      mockFetch.mockResolvedValueOnce({
-        ok: false,
-        status: 401,
-        text: () => Promise.resolve('Unauthorized'),
-      } as unknown as Response);
+      mockHandyOutput('{"text":""}');
 
-      // Suppress expected console.error
-      const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-      await expect(transcribe(fakeAttachmentUrl)).rejects.toThrow('AUTH_FAILURE');
-      consoleSpy.mockRestore();
+      await expect(transcribe(fakeAttachmentUrl)).rejects.toThrow('Handy returned empty transcription');
     });
 
-    it('should throw sanitized error for non-401 Whisper failures', async () => {
+    it('should throw when Handy output has no JSON', async () => {
       mockSuccessfulDownload();
-      mockFetch.mockResolvedValueOnce({
-        ok: false,
-        status: 500,
-        text: () => Promise.resolve('Internal server error with sensitive details'),
-      } as unknown as Response);
+      mockHandyOutput('[INFO] some log line without json');
 
-      const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-      await expect(transcribe(fakeAttachmentUrl)).rejects.toThrow('Whisper API error (HTTP 500)');
-      // Verify full error is logged server-side
-      expect(consoleSpy).toHaveBeenCalledWith(
-        expect.stringContaining('Whisper API error 500'),
-        'Internal server error with sensitive details',
-      );
-      consoleSpy.mockRestore();
+      await expect(transcribe(fakeAttachmentUrl)).rejects.toThrow('Handy did not return JSON output');
     });
 
     it('should handle fetch abort (timeout) gracefully', async () => {
@@ -145,19 +137,19 @@ describe('voiceService', () => {
 
     it('should work without fileSize parameter', async () => {
       mockSuccessfulDownload();
-      mockSuccessfulWhisper('No size check');
+      mockHandyOutput('{"text":"Sin tamaño"}');
 
       const result = await transcribe(fakeAttachmentUrl);
-      expect(result).toBe('No size check');
+      expect(result).toBe('Sin tamaño');
     });
 
     it('should allow file exactly at 25MB limit', async () => {
       const exactLimit = 25 * 1024 * 1024;
       mockSuccessfulDownload();
-      mockSuccessfulWhisper('Exact limit');
+      mockHandyOutput('{"text":"Exacto"}');
 
       const result = await transcribe(fakeAttachmentUrl, exactLimit);
-      expect(result).toBe('Exact limit');
+      expect(result).toBe('Exacto');
     });
   });
 });

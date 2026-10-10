@@ -13,6 +13,31 @@ export interface ChannelBinding {
   model?: string;
 }
 
+export type AgentMode = 'build' | 'plan';
+
+export interface HubConfig {
+  hubChannelId: string;
+  categoryId: string;
+  projectAlias: string;
+  model: string;
+  agent: AgentMode;
+}
+
+export interface ArchivedSession {
+  channelId: string;
+  sessionId?: string;
+  projectPath?: string;
+  port?: number;
+  model?: string;
+  title?: string;
+  archivedAt: number;
+}
+
+export interface ChannelAgent {
+  channelId: string;
+  agent: AgentMode;
+}
+
 export interface DataStore {
   projects: ProjectConfig[];
   bindings: ChannelBinding[];
@@ -21,6 +46,10 @@ export interface DataStore {
   passthroughThreads?: PassthroughThread[];
   queues?: Record<string, QueuedMessage[]>;
   queueSettings?: Record<string, QueueSettings>;
+  hub?: HubConfig;
+  archivedSessions?: ArchivedSession[];
+  channelAgents?: ChannelAgent[];
+  syncCursors?: Record<string, string>;
 }
 
 export interface QueuedMessage {
@@ -90,4 +119,37 @@ export interface SessionErrorInfo {
     message?: string;
     providerID?: string;
   };
+}
+
+export interface QuestionOption {
+  label: string;
+  description?: string;
+}
+
+export interface QuestionInfo {
+  question: string;
+  header: string;
+  options: QuestionOption[];
+  multiple?: boolean;
+  custom?: boolean;
+}
+
+export interface QuestionRequest {
+  id: string;
+  sessionID: string;
+  questions: QuestionInfo[];
+  tool?: { messageID?: string; callID?: string };
+}
+
+export interface PermissionRequest {
+  id: string;
+  sessionID: string;
+  permission?: string;
+  action?: string;
+  patterns?: string[];
+  resources?: string[];
+  metadata?: Record<string, unknown>;
+  always?: string[];
+  save?: string[];
+  tool?: { messageID?: string; callID?: string };
 }

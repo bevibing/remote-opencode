@@ -1,81 +1,114 @@
-import { 
-  SlashCommandBuilder, 
-  ChatInputCommandInteraction, 
+import {
+  SlashCommandBuilder,
+  ChatInputCommandInteraction,
   MessageFlags,
-  ThreadChannel
+  TextChannel,
+  ThreadChannel,
 } from 'discord.js';
 import * as dataStore from '../services/dataStore.js';
-import { getOrCreateThread } from '../utils/threadHelper.js';
+import * as sessionFlow from '../services/sessionFlow.js';
 import type { Command } from './index.js';
 import { runPrompt } from '../services/executionService.js';
 import { isBusy } from '../services/queueManager.js';
 
-function getParentChannelId(interaction: ChatInputCommandInteraction): string {
-  const channel = interaction.channel;
-  if (channel?.isThread()) {
-    return (channel as ThreadChannel).parentId ?? interaction.channelId;
-  }
-  return interaction.channelId;
-}
-
 export const opencode: Command = {
   data: new SlashCommandBuilder()
     .setName('opencode')
-    .setDescription('Send a command to OpenCode')
+    .setDescription('Enviar un prompt a OpenCode (crea un canal de sesión si no estás en uno)')
     .addStringOption(option =>
       option.setName('prompt')
         .setDescription('Prompt to send to OpenCode')
         .setRequired(true)) as SlashCommandBuilder,
-  
+
   async execute(interaction: ChatInputCommandInteraction) {
     const prompt = interaction.options.getString('prompt', true);
-    const channelId = getParentChannelId(interaction);
-    const isInThread = interaction.channel?.isThread() ?? false;
-    
-    const projectPath = dataStore.getChannelProjectPath(channelId);
+    const channel = interaction.channel;
+
+    let targetChannel: TextChannel | ThreadChannel;
+    let threadId: string;
+    let parentChannelId: string;
+
+    if (channel?.isThread()) {
+      targetChannel = channel;
+      threadId = channel.id;
+      parentChannelId = channel.parentId ?? channel.id;
+    } else if (
+      channel &&
+      channel.isTextBased() &&
+      !channel.isDMBased() &&
+      dataStore.isPassthroughEnabled(channel.id)
+    ) {
+      targetChannel = channel as TextChannel;
+      threadId = channel.id;
+      parentChannelId = channel.id;
+    } else {
+      const hub = dataStore.getHubConfig();
+      if (!hub || !interaction.guild) {
+        await interaction.reply({
+          content:
+            '❌ No hay hub configurado. Usá `/hub` en el canal principal, o entrá a un canal de sesión.',
+          flags: MessageFlags.Ephemeral,
+        });
+        return;
+      }
+
+      await interaction.deferReply();
+
+      try {
+        const created = await sessionFlow.createSessionChannel(
+          interaction.guild,
+          prompt.slice(0, 90),
+          hub.projectAlias,
+          hub.model,
+          hub.agent,
+          interaction.user.id,
+        );
+        targetChannel = created;
+        threadId = created.id;
+        parentChannelId = created.id;
+      } catch (error) {
+        await interaction.editReply({
+          content: `❌ No se pudo crear el canal de sesión: ${(error as Error).message}`,
+        });
+        return;
+      }
+    }
+
+    const projectPath = dataStore.getChannelProjectPath(parentChannelId);
     if (!projectPath) {
-      await interaction.reply({
-        content: '❌ No project set for this channel. Use `/use <alias>` to set a project.',
-        flags: MessageFlags.Ephemeral
-      });
+      if (interaction.replied || interaction.deferred) {
+        await interaction.editReply({
+          content: '❌ No hay proyecto asignado a este canal.',
+        });
+      } else {
+        await interaction.reply({
+          content: '❌ No hay proyecto asignado a este canal.',
+          flags: MessageFlags.Ephemeral,
+        });
+      }
       return;
     }
 
-    await interaction.deferReply();
-    
-    let thread;
-    try {
-      if (isInThread && interaction.channel?.isThread()) {
-        thread = interaction.channel;
-      } else {
-        thread = await getOrCreateThread(interaction, prompt);
-      }
-    } catch {
-      await interaction.editReply({
-        content: '❌ Cannot create thread.',
-      });
-      return;
+    if (!interaction.deferred && !interaction.replied) {
+      await interaction.deferReply();
     }
-    
-    const threadId = thread.id;
-    
+
     if (isBusy(threadId)) {
       dataStore.addToQueue(threadId, {
         prompt,
         userId: interaction.user.id,
-        timestamp: Date.now()
+        timestamp: Date.now(),
       });
       await interaction.editReply({
-        content: '📥 Prompt added to queue.',
+        content: `📥 Prompt agregado a la cola de <#${threadId}>.`,
       });
       return;
     }
 
     await interaction.editReply({
-      content: `📌 **Prompt**: ${prompt}`
+      content: `📌 **Prompt**: ${prompt} — sesión <#${threadId}>`,
     });
 
-    await runPrompt(thread as any, threadId, prompt, channelId);
-  }
+    await runPrompt(targetChannel as any, threadId, prompt, parentChannelId);
+  },
 };
-

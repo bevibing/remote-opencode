@@ -14,6 +14,7 @@ import { allow } from './allow.js';
 import { diff } from './diff.js';
 import { voice } from './voice.js';
 import { session } from './session.js';
+import { hub } from './hub.js';
 
 export interface Command {
   data: SlashCommandBuilder;
@@ -37,3 +38,4 @@ commands.set(allow.data.name, allow);
 commands.set(diff.data.name, diff);
 commands.set(voice.data.name, voice);
 commands.set(session.data.name, session);
+commands.set(hub.data.name, hub);

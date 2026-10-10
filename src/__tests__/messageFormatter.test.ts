@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseSSEEvent, extractTextFromPart, accumulateText, formatOutput, stripAnsi, buildContextHeader } from '../utils/messageFormatter.js';
+import { parseSSEEvent, extractTextFromPart, accumulateText, formatOutput, stripAnsi, buildContextHeader, formatMarkdownTables } from '../utils/messageFormatter.js';
 
 describe('messageFormatter', () => {
   describe('stripAnsi', () => {
@@ -107,5 +107,42 @@ describe('messageFormatter', () => {
       const buffer = 'Line1\nLine2\nLine3';
       expect(formatOutput(buffer)).toBe('Line1\nLine2\nLine3');
     });
+  });
+});
+
+describe('formatMarkdownTables', () => {
+  it('should render a markdown table as a monospace block', () => {
+    const input = '| Col A | Col B |\n|---|---|\n| 1 | longer value |\n| x | y |';
+    const out = formatMarkdownTables(input);
+    expect(out).toContain('```');
+    expect(out).toContain('| Col A');
+    expect(out).toContain('---');
+    // Header cell should be padded to column width
+    expect(out).toMatch(/\| Col A\s+\| Col B\s+\|/);
+    expect(out).not.toContain('|---|---|');
+  });
+
+  it('should align cells to the widest value per column', () => {
+    const input = '| a | b |\n|---|---|\n| 1 | 12345 |';
+    const out = formatMarkdownTables(input);
+    expect(out).toContain('| a   | b     |');
+    expect(out).toContain('| 1   | 12345 |');
+  });
+
+  it('should not touch plain text', () => {
+    const input = 'Hola mundo\nsin tablas';
+    expect(formatMarkdownTables(input)).toBe(input);
+  });
+
+  it('should ignore tables inside code fences', () => {
+    const input = '```\n| not | a | table |\n```\nafter';
+    const out = formatMarkdownTables(input);
+    expect(out).toBe(input);
+  });
+
+  it('should handle escaped pipes', () => {
+    const input = '| a\\|b | c |\n|---|---|\n| 1 | 2 |';
+    const out = formatMarkdownTables(input);
+    expect(out).toContain('| a|b ');
   });
 });

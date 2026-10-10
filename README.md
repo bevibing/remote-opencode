@@ -8,18 +8,21 @@
 <img width="1024" alt="remote-opencode logo" src="./asset/remo-code-logo.png" />
 </div>
 
-> 🆕 **New in v1.5!** Session management — browse, attach, and manage OpenCode CLI sessions from Discord with `/session`. Plus: model autocomplete for `/model set`. [See changelog](#changelog)
+> 🆕 **New in v1.6!** **Hub** with buttons, **one Discord channel per session** named after the session, sticky action buttons (Plan/Build, Interrupt, Diff, Model, Archive), resume your existing OpenCode sessions directly in Discord, and **voice transcription powered by the local Handy app**.
 >
-> 🎤 **v1.4:** Voice message support — send voice messages that are automatically transcribed and processed. [See demo](#-voice-mode-demo)
+> 🧵 **v1.5:** Session management — browse, attach, and manage OpenCode CLI sessions from Discord with `/session`.
+>
+> 🎤 **v1.4:** Voice message support — send voice messages that are automatically transcribed and processed.
 
 **remote-opencode** is a Discord bot that bridges your local [OpenCode CLI](https://github.com/sst/opencode) to Discord, enabling you to interact with your AI coding assistant remotely. Perfect for developers who want to:
 
 - 📱 **Code from mobile** — Send coding tasks from your phone while away from your desk
 - 💻 **Access from any device** — Use your powerful dev machine from a laptop or tablet
 - 🌍 **Work remotely** — Control your home/office workstation from anywhere
+- 🎛️ **Console-like UX** — A hub to launch sessions, one channel per session, and buttons for everything (no slash-command typing on your phone)
 - 👥 **Collaborate** — Share AI coding sessions with team members in Discord
 - 🤖 **Automated Workflows** — Queue up multiple tasks and let the bot process them sequentially
-- 🎤 **Voice Messages** — Send voice messages that are automatically transcribed and processed as text
+- 🎤 **Voice Messages** — Send voice messages that are transcribed locally by **Handy** and processed as text
 
 ## How It Works
 
@@ -29,12 +32,14 @@ flowchart LR
 
     subgraph Workflow
         direction TB
-        B --> C["💻 OpenCode CLI"]
+        B --> H["🖥️ Hub (launcher)"]
+        H --> S["🧵 Session channels (one per session)"]
+        S --> C["💻 OpenCode CLI"]
         C --> D["📁 Your Codebase"]
     end
 ```
 
-The bot runs on your development machine alongside OpenCode. When you send a command via Discord, it's forwarded to OpenCode, and the output streams back to you in real-time.
+The bot runs on your development machine alongside OpenCode. You launch sessions from a hub channel, each session gets its own text channel named after the session, and the output streams back in real-time.
 
 ## Demo
 
@@ -50,13 +55,16 @@ https://github.com/user-attachments/assets/59cf162a-ec86-41b5-a1f3-9b1379acd9fd
 
 - [Installation](#installation)
 - [Quick Start](#quick-start)
-- [Proxy Support](#proxy-support)
+- [Hub & Session Channels](#hub--session-channels)
 - [Discord Bot Setup](#discord-bot-setup)
+- [Voice Transcription (Handy)](#voice-transcription-handy)
 - [CLI Commands](#cli-commands)
 - [Discord Slash Commands](#discord-slash-commands)
 - [Usage Workflow](#usage-workflow)
 - [Access Control](#access-control)
 - [Configuration](#configuration)
+- [Run as a systemd service](#run-as-a-systemd-service)
+- [Proxy Support](#proxy-support)
 - [Troubleshooting](#troubleshooting)
 - [Development](#development)
 - [Changelog](#changelog)
@@ -69,28 +77,32 @@ https://github.com/user-attachments/assets/59cf162a-ec86-41b5-a1f3-9b1379acd9fd
 ### Prerequisites
 
 - **Node.js 22+** — [Download](https://nodejs.org/)
+- **Build tools** — `node-pty` compiles from source on install (`build-essential` + `python3` on Debian/Ubuntu)
 - **OpenCode CLI** — Must be installed and working on your machine
 - **Discord Account** — With a server where you have admin permissions
+- **Handy** *(optional, for voice)* — Local speech-to-text app, see [Voice Transcription (Handy)](#voice-transcription-handy)
+
+### Install from source (recommended)
+
+```bash
+git clone https://github.com/Felipe-258/remote-opencode.git
+cd remote-opencode
+npm install
+npm run build
+npm link  # Makes 'remote-opencode' available globally
+```
 
 ### Install via npm
 
 ```bash
-# Global installation (recommended)
+# Global installation
 npm install -g remote-opencode
 
 # Or run directly with npx
 npx remote-opencode
 ```
 
-### Install from source
-
-```bash
-git clone https://github.com/RoundTable02/remote-opencode.git
-cd remote-opencode
-npm install
-npm run build
-npm link  # Makes 'remote-opencode' available globally
-```
+> **Note:** The npm package is the upstream build and does **not** include the v1.6 hub / session-channel features. Use the source install above (or the fork) for the latest features.
 
 ---
 
@@ -104,37 +116,62 @@ remote-opencode setup
 remote-opencode start
 ```
 
-That's it! Now use Discord slash commands to interact with OpenCode.
+Then, in your Discord server:
+
+1. Run `/hub` in any text channel — this becomes your **launcher**.
+2. Press **🆕 Nueva sesión**, type a name (e.g. `24 august`), and a session channel `🤖 24 august` is created.
+3. Type your prompt directly in that channel — it goes straight to OpenCode.
 
 ---
 
-## Proxy Support
+## Hub & Session Channels
 
-`remote-opencode` supports HTTP proxy environments for Discord and other external API requests.
+The v1.6 UX is built around a **hub** and **one Discord channel per session**, so you almost never need to type slash commands from your phone.
 
-Supported environment variables:
+### The Hub
 
-- `HTTP_PROXY`
-- `HTTPS_PROXY`
-- `ALL_PROXY`
-- `NO_PROXY`
+Run `/hub` in any text channel. The bot pins a launcher panel with buttons:
 
-Proxy settings are applied app-wide. Local OpenCode traffic is kept direct automatically, so `localhost`, `127.0.0.1`, and `::1` are always excluded from proxying.
+| Button | Action |
+|---|---|
+| 🆕 **Nueva sesión** | Opens a modal where you name the session, then creates a session channel |
+| 📋 **Sesiones** | Lists your sessions (including existing OpenCode sessions) and lets you resume or reopen them |
+| 🧠 **Modelo** | Sets the default model used for new sessions |
+| 📂 **Proyecto** | Sets the default project used for new sessions |
 
-### Example
+The hub remembers its project alias, model, and category. By default the model is `deepseek/deepseek-flash` (set per project with the **🧠 Modelo** button).
 
-```bash
-export HTTPS_PROXY=http://proxy.company.local:8080
-export NO_PROXY=internal.company.local
-remote-opencode start
-```
+### Session channels
 
-If your network uses a single proxy for everything, `ALL_PROXY` is also supported:
+When you create a session:
 
-```bash
-export ALL_PROXY=http://proxy.company.local:8080
-remote-opencode start
-```
+- A text channel `🤖 <name>` is created inside a **Sesiones** category (created automatically).
+- The channel is bound to the hub's project and model.
+- A matching OpenCode session is created **with that title**.
+- **Passthrough is ON**: any message you type in the channel is sent directly to OpenCode.
+- A pinned message shows sticky buttons:
+
+| Button | Action |
+|---|---|
+| 🎯 **Plan / 🔨 Build** | Toggle agent mode (like `Tab` in the TUI) |
+| ⏹️ **Interrupt** | Abort the current task |
+| 📊 **Diff** | Show `git diff` of the project |
+| 🧠 **Modelo** | Change the model for this channel |
+| 🗑 **Archivar** | Archive the session (channel becomes `🔒 <name>` and is hidden) |
+| ↩️ **Undo** | Revert the last user message |
+| ℹ️ **Status** | Project, branch, model, mode, session and busy state |
+| 🧹 **Compactar** | Summarize/compact the context |
+| ⚡ **Init** | Generate/update `AGENTS.md` for the project |
+
+If OpenCode renames the session (it auto-titles sessions after the first reply), the channel is renamed to match.
+
+### Sessions list & resume
+
+**📋 Sesiones** shows, sorted by most recent activity:
+
+- Sessions already mapped to Discord channels (🟢 active / ⚪ idle, 🔒 archived).
+- **Other sessions from OpenCode** — including ones you created earlier in the terminal. Use the **"Resumir sesión en Discord"** select to create a channel attached to an existing OpenCode session and continue the conversation.
+- **Archived sessions** — reopen any archived session (channel becomes visible again and passthrough is restored).
 
 ---
 
@@ -152,19 +189,62 @@ Just run `remote-opencode setup` and follow the prompts — no manual URL copyin
 <details>
 <summary>📖 Manual setup reference (click to expand)</summary>
 
-If you prefer manual setup or need to troubleshoot:
-
 1. **Create Application**: Go to [Discord Developer Portal](https://discord.com/developers/applications), create a new application
 2. **Enable Intents**: In "Bot" section, enable SERVER MEMBERS INTENT and MESSAGE CONTENT INTENT
 3. **Get Bot Token**: In "Bot" section, reset/view token and copy it
 4. **Get Guild ID**: Enable Developer Mode in Discord settings, right-click your server → Copy Server ID
-5. **Invite Bot**: Use this URL format:
+5. **Invite Bot**: The bot needs to **create channels, manage categories and hide channels**. Use this URL (permissions `275901456`):
    ```
-   https://discord.com/api/oauth2/authorize?client_id=YOUR_CLIENT_ID&permissions=2147534848&scope=bot+applications.commands
+   https://discord.com/api/oauth2/authorize?client_id=YOUR_CLIENT_ID&permissions=275901456&scope=bot+applications.commands
    ```
 6. **Check Channel Access**: For private or restricted channels, make sure the bot user or bot role can access the channel.
 
 </details>
+
+### Required permissions
+
+| Permission | Why |
+|---|---|
+| Manage Channels | Create the `Sesiones` category and session channels, hide archived ones |
+| View Channel / Send Messages | Interact in channels and threads |
+| Manage Messages | Edit streamed messages and pin the sticky panels |
+| Embed Links / Read Message History | Render embeds and read the conversation |
+| Create Public Threads / Send Messages in Threads | Legacy thread-based flows (`/work`, `/opencode` in a channel) |
+| Attach Files | Voice/download flows |
+
+---
+
+## Voice Transcription (Handy)
+
+Voice messages in session channels are transcribed **locally** using **Handy** — a speech-to-text desktop app (Whisper-family models via transcribe-cpp). No API keys, no cloud, audio never leaves your machine.
+
+### How it works
+
+1. You send a **voice message** (🎤) in a session channel.
+2. The bot downloads it, converts it to 16 kHz mono WAV with a bundled `ffmpeg-static` binary (no system ffmpeg needed).
+3. It runs `handy --transcribe-file <wav> --json` and sends the text as a prompt to OpenCode (queued if the agent is busy).
+
+### Install Handy
+
+```bash
+sudo apt install handy
+```
+
+Open the Handy app, pick a model (e.g. Parakeet V3 or Nemotron Streaming) that handles your language well, and leave it running (system tray). The bot uses the same model you selected in the app.
+
+### Environment variables
+
+| Variable | Default | Description |
+|---|---|---|
+| `HANDY_BIN` | `/usr/bin/handy` | Path to the Handy binary |
+| `HANDY_MODEL` | *(Handy's selected model)* | Optional model id to force for transcription |
+| `HANDY_TIMEOUT_MS` | `120000` | Max time for one transcription |
+
+`/voice status` reports whether Handy was found.
+
+> **Running under systemd:** Handy initializes GTK even in headless mode, so the service needs the graphical session environment: `DISPLAY`, `WAYLAND_DISPLAY` and `XDG_RUNTIME_DIR`. See [Run as a systemd service](#run-as-a-systemd-service).
+>
+> **Docker note:** Handy is a desktop app, so voice transcription is only supported when the bot runs natively on the same host. The bundled `ffmpeg-static` binary also targets glibc — the alpine-based `Dockerfile` is fine for the rest of the bot but not for voice.
 
 ---
 
@@ -182,15 +262,23 @@ If you prefer manual setup or need to troubleshoot:
 | `remote-opencode allow remove <userId>` | Remove a Discord user ID from the allowlist          |
 | `remote-opencode allow list`            | List all user IDs in the allowlist                   |
 | `remote-opencode allow reset`           | Clear the entire allowlist (removes access control)  |
-| `remote-opencode voice set <apiKey>`    | Set OpenAI API key for voice message transcription   |
-| `remote-opencode voice remove`          | Remove the stored OpenAI API key                     |
-| `remote-opencode voice status`          | Show voice transcription status and API key source   |
+| `remote-opencode voice status`          | Show voice transcription status (Handy)              |
 
 ---
 
 ## Discord Slash Commands
 
 Once the bot is running, use these commands in your Discord server:
+
+### `/hub` — Set Up the Launcher
+
+Make the current channel your hub. Pins the launcher panel (new session, sessions list, model, project).
+
+```
+/hub
+```
+
+---
 
 ### `/setpath` — Register a Project
 
@@ -225,18 +313,23 @@ After binding, all `/opencode` commands in that channel will work on the specifi
 
 ### `/opencode` — Send Command to AI
 
-The main command — sends a prompt to OpenCode and streams the response.
+Sends a prompt to OpenCode and streams the response.
 
 ```
 /opencode prompt:Add a dark mode toggle to the settings page
 ```
 
+**Behavior in v1.6:**
+
+- In a **session channel** → runs the prompt in that session.
+- In the **hub** (or any non-session channel) → creates a session channel named after the prompt and runs it there.
+- **Legacy:** in a thread, it continues the thread's conversation.
+
 **Features:**
 
-- 🧵 **Auto-creates a thread** for each conversation
 - ⚡ **Real-time streaming** — see output as it's generated (1-second updates)
 - ⏸️ **Interrupt button** — stop the current task if needed
-- 📝 **Session persistence** — continue conversations in the same thread
+- 📝 **Session persistence** — continue conversations in the same channel/thread
 
 ### `/work` — Create a Git Worktree
 
@@ -259,11 +352,9 @@ Start isolated work on a new branch with its own worktree.
 - 🗑️ **Delete button** — removes worktree and archives thread
 - 🚀 **Create PR button** — automatically creates a pull request
 
-This is perfect for working on multiple features simultaneously without branch switching.
-
 ### `/code` — Toggle Passthrough Mode
 
-Enable passthrough mode in a thread to send messages directly to OpenCode without slash commands.
+Enable passthrough mode to send messages directly to OpenCode without slash commands.
 
 ```
 /code
@@ -271,34 +362,16 @@ Enable passthrough mode in a thread to send messages directly to OpenCode withou
 
 **How it works:**
 
-1. Run `/code` in any thread to enable passthrough mode
+1. Run `/code` in a session channel (or a thread) to enable passthrough mode
 2. Type messages naturally — they're sent directly to OpenCode
 3. Run `/code` again to disable
 
-**Example:**
-
-```
-You: /code
-Bot: ✅ Passthrough mode enabled for this thread.
-     Your messages will be sent directly to OpenCode.
-
-You: Add a dark mode toggle to settings
-Bot: 📌 Prompt: Add a dark mode toggle to settings
-     [streaming response...]
-
-You: Now add a keyboard shortcut for it
-Bot: 📌 Prompt: Now add a keyboard shortcut for it
-     [streaming response...]
-
-You: /code
-Bot: ❌ Passthrough mode disabled.
-```
+> Session channels created from the hub have passthrough **already enabled** — no need to run `/code`.
 
 **Features:**
 
 - 📱 **Mobile-friendly** — no more typing slash commands on phone
-- 🧵 **Thread-scoped** — only affects the specific thread, not the whole channel
-- ⏳ **Busy indicator** — shows ⏳ reaction if previous task is still running
+- ⏳ **Busy indicator** — shows 📥 reaction and queues if the previous task is still running
 - 🔒 **Safe** — ignores bot messages (no infinite loops)
 
 ### `/autowork` — Toggle Automatic Worktree Creation
@@ -309,43 +382,17 @@ Enable automatic worktree creation for a project. When enabled, new `/opencode` 
 /autowork
 ```
 
-**How it works:**
-
-1. Run `/autowork` in a channel bound to a project
-2. The setting toggles on/off for that project
-3. When enabled, new sessions automatically create worktrees with branch names like `auto/abc12345-1738600000000`
-
-**Features:**
-
-- 🌳 **Automatic isolation** — each session gets its own branch and worktree
-- 📱 **Mobile-friendly** — no need to type `/work` with branch names
-- 🗑️ **Delete button** — removes worktree when done
-- 🚀 **Create PR button** — easily create pull requests from worktree
-- ⚡ **Per-project setting** — enable/disable independently for each project
-
 ### `/autocode` — Toggle Automatic Passthrough Mode
 
-Enable automatic passthrough mode for a project. When enabled, every new thread the bot creates (via `/work` or `/opencode`) will already have passthrough mode on, so plain messages are sent to OpenCode without needing to run `/code` first.
+Enable automatic passthrough mode for a project. When enabled, every new thread the bot creates will already have passthrough mode on.
 
 ```
 /autocode
 ```
 
-**How it works:**
-
-1. Run `/autocode` in a channel bound to a project
-2. The setting toggles on/off for that project
-3. New threads in that project skip the manual `/code` step
-
-**Features:**
-
-- 📱 **Mobile-friendly** — one less command to type per thread
-- 🧵 **Thread-scoped** — each new thread starts with passthrough enabled; `/code` still toggles it within a thread
-- ⚡ **Per-project setting** — enable/disable independently for each project
-
 ### `/queue` — Manage Message Queue
 
-Control the automated job queue for the current thread.
+Control the automated job queue for the current channel/thread.
 
 ```
 /queue list
@@ -355,16 +402,10 @@ Control the automated job queue for the current thread.
 /queue settings continue_on_failure:True fresh_context:False
 ```
 
-**How it works:**
-
-1. Send multiple messages to a thread (or use `/opencode` multiple times)
-2. If the bot is busy, it reacts with `📥` and adds the task to the queue
-3. Once the current job is done, the bot automatically picks up the next one
-
 **Settings:**
 
 - `continue_on_failure`: If `True`, the bot moves to the next task even if the current one fails.
-- `fresh_context`: If `True`, the AI forgets previous chat history for each new queued task, starting a fresh session while maintaining the same code state. Default: `False` (conversation context is preserved within the same thread).
+- `fresh_context`: If `True`, the AI forgets previous chat history for each new queued task. Default: `False`.
 
 ### `/diff` — View Git Diff
 
@@ -383,24 +424,6 @@ Show git diffs for the current project directly in Discord — perfect for revie
 | `stat`    | Show `--stat` summary only instead of full diff (default: `false`) |
 | `base`    | Base branch for `target:branch` diff (default: `main`)             |
 
-**How it works:**
-
-- Inside a **worktree thread** → diffs the worktree path for that branch
-- In a **regular channel** → diffs the channel-bound project path
-- Output is formatted in a `diff` code block (truncated if over Discord's 2000-char limit)
-
-**Examples:**
-
-```
-/diff                          → unstaged changes (git diff)
-/diff target:staged            → staged changes (git diff --cached)
-/diff target:branch            → changes vs main (git diff main...HEAD)
-/diff target:branch base:dev   → changes vs dev branch
-/diff stat:true                → summary only (git diff --stat)
-```
-
----
-
 ### `/allow` — Manage Allowlist
 
 Manage the user allowlist directly from Discord. This command is only available when the allowlist has already been initialized (at least one user exists).
@@ -411,43 +434,13 @@ Manage the user allowlist directly from Discord. This command is only available 
 /allow action:list
 ```
 
-| Parameter | Description                                   |
-| --------- | --------------------------------------------- |
-| `action`  | `add`, `remove`, or `list`                    |
-| `user`    | Target user (required for `add` and `remove`) |
-
-**Behavior:**
-
-- **Requires authorization** — only users already on the allowlist can use this command
-- **Cannot remove last user** — prevents accidental lockout
-- **Disabled when allowlist is empty** — initial setup must be done via CLI or setup wizard (see [Access Control](#access-control))
-
----
-
-### `/voice` — Manage Voice Transcription
-
-Manage voice message transcription settings. Requires an OpenAI API key (set via CLI).
+### `/voice` — Voice Transcription Status
 
 ```
-/voice status               Show voice transcription status
-/voice remove               Remove the stored OpenAI API key
+/voice status
 ```
 
-| Parameter | Description                          |
-| --------- | ------------------------------------ |
-| (none)    | Subcommands only: `status`, `remove` |
-
-**How it works:**
-
-1. Set your OpenAI API key via CLI: `remote-opencode voice set <apiKey>`
-2. Enable passthrough mode in a thread with `/code`
-3. Send a voice message using Discord's 🎤 button
-4. The bot adds a 🎙️ reaction, transcribes the audio via OpenAI Whisper, and processes it as a text prompt
-5. If the bot is busy, voice messages are queued (with 📥 reaction) and transcribed when dequeued
-
-> **Note:** The `set` subcommand is intentionally CLI-only to avoid API key exposure in Discord command history.
-
----
+Shows whether Handy is available and transcription is enabled.
 
 ### `/model` — List & Set AI Model
 
@@ -466,15 +459,11 @@ View available AI models or set the model for the current channel.
 **Features:**
 
 - 🔍 **Autocomplete** — start typing a model name and get instant suggestions
-- 📋 **Full model list** — all models are shown with automatic message splitting when output exceeds Discord's limit
 - 💾 **Per-channel persistence** — model preferences are saved per channel/thread
-- ⚡ **Fast validation** — model names are validated against a background-cached list (no blocking CLI calls)
-
----
 
 ### `/session` — Browse & Manage Sessions
 
-Browse OpenCode CLI sessions and manage session-thread mappings. Useful for resuming previous conversations or sharing sessions across threads.
+Browse OpenCode CLI sessions and manage session-channel mappings. Useful for resuming previous conversations or sharing sessions.
 
 ```
 /session list
@@ -490,62 +479,37 @@ Browse OpenCode CLI sessions and manage session-thread mappings. Useful for resu
 | `detach`   | Disconnect the session from this thread                      |
 | `info`     | Show detailed status of the attached session                 |
 
-**How it works:**
-
-1. Use `/session list` to see all sessions for the bound project
-2. In a thread, use `/session attach` → select a session from the dropdown
-3. The thread now continues that session's conversation (with `freshContext` automatically disabled)
-4. Use `/session info` to check if the session is alive, see its port, creation time, etc.
-5. Use `/session detach` to disconnect and start fresh
-
-**Features:**
-
-- 📋 **Merged view** — combines active server sessions with persisted thread mappings
-- 🔗 **Interactive attach** — dropdown menu shows session title, ID, mapping status, and recency
-- ⚠️ **Cross-thread warning** — notifies when attaching a session already used in another thread
-- 📊 **Rich info embed** — session status, port, SSE state, timestamps in a clean embed
-- 🧹 **Clean detach** — properly disconnects SSE and clears session mapping
-
 ---
 
 ## Usage Workflow
 
-### Basic Workflow
+### Hub Workflow (v1.6, recommended — mobile friendly)
 
-1. **Register your project:**
+1. **Set up the hub:**
+
+   ```
+   /hub
+   ```
+
+2. **Register and bind your project** (once):
 
    ```
    /setpath alias:webapp path:/home/user/my-webapp
    ```
 
-2. **Bind to a channel:**
+   Then press **📂 Proyecto** in the hub and pick `webapp`.
 
-   ```
-   /use alias:webapp
-   ```
-
-3. **Start coding remotely:**
-
-   ```
-   /opencode prompt:Refactor the authentication module to use JWT
-   ```
-
-4. **Continue the conversation** in the created thread:
-   ```
-   /opencode prompt:Now add refresh token support
-   ```
+3. **Create a session** — press **🆕 Nueva sesión**, type a name.
+4. **Code** — type prompts directly in the new `🤖 <name>` channel. Use the sticky buttons for Interrupt, Diff, Model, Undo, Archive.
+5. **Resume later** — press **📋 Sesiones** in the hub: pick an existing OpenCode session to resume it in Discord, or reopen an archived one.
 
 ### Mobile Workflow
 
-Perfect for when you're away from your desk:
-
 1. 📱 Open Discord on your phone
-2. Navigate to your bound channel
-3. Use `/opencode` to send tasks
-4. Watch real-time progress
-5. Use the **Interrupt** button if needed
-
-**Pro tip:** Enable passthrough mode with `/code` in a thread for an even smoother mobile experience — just type messages directly without slash commands! You can also send **voice messages** via the 🎤 button — they're automatically transcribed and processed as text.
+2. Open the hub channel and press **🆕 Nueva sesión**
+3. Type prompts directly in the session channel (passthrough is on)
+4. Use buttons to Interrupt / Diff / Archive — no slash commands needed
+5. Send **voice messages** (🎤) — they're transcribed locally by Handy and sent as prompts
 
 ### Team Collaboration Workflow
 
@@ -554,26 +518,17 @@ Share AI coding sessions with your team:
 1. Create a dedicated Discord channel for your project
 2. Bind the project: `/use alias:team-project`
 3. Team members can watch sessions in real-time
-4. Discuss in threads while AI works
+4. Discuss in channels while AI works
+
+> ⚠️ If the server has people you don't trust, configure the [allowlist](#access-control) first.
 
 ### Automated Iteration Workflow
 
 Perfect for "setting and forgetting" several tasks:
 
-1. **Send multiple instructions:**
-
-   ```
-   You: Refactor the API
-   Bot: [Starts working]
-   You: Add documentation to the new methods
-   Bot: 📥 [Queued]
-   You: Run tests and fix any issues
-   Bot: 📥 [Queued]
-   ```
-
-2. **The bot will finish the API refactor, then automatically start the documentation task, then run the tests.**
-
-3. **Monitor progress:** Use `/queue list` to see pending tasks.
+1. **Send multiple instructions** — if the bot is busy, tasks are queued (📥).
+2. The bot finishes the current task, then processes the queue in order.
+3. **Monitor progress:** `/queue list`.
 
 ---
 
@@ -608,56 +563,20 @@ remote-opencode allow add 123456789012345678
 remote-opencode allow list
 ```
 
-### Managing the Allowlist
-
-Once at least one user is on the allowlist, authorized users can manage it from Discord:
-
-```
-/allow action:add user:@teammate
-/allow action:remove user:@teammate
-/allow action:list
-```
-
-Or via CLI at any time:
-
-```bash
-remote-opencode allow add <userId>
-remote-opencode allow remove <userId>
-remote-opencode allow list
-remote-opencode allow reset    # Clears entire allowlist (disables access control)
-```
-
 ### Safety Guardrails
 
-- **Cannot remove the last user** via Discord `/allow` or CLI `allow remove` — prevents accidental lockout
-- **`allow reset`** is the only way to fully clear the allowlist (intentional action to disable access control)
+- **Cannot remove the last user** — prevents accidental lockout
+- **`allow reset`** is the only way to fully clear the allowlist (intentional action)
 - **Discord `/allow` is disabled when allowlist is empty** — prevents bootstrap attacks
 - **Config file permissions** are set to `0o600` (owner-read/write only)
 
 ### OpenCode server password (optional)
 
-`remote-opencode` communicates with a local `opencode serve` process bound to
-`127.0.0.1`. If you already run `opencode serve` with upstream HTTP Basic auth
-enabled via `OPENCODE_SERVER_PASSWORD` (and optionally `OPENCODE_SERVER_USERNAME`),
-the bot will automatically pick up the same credentials from its own environment
-and apply them to all internal communication — session HTTP calls, the SSE
-`/event` stream, and readiness probes.
+If you run `opencode serve` with HTTP Basic auth enabled via `OPENCODE_SERVER_PASSWORD` (and optionally `OPENCODE_SERVER_USERNAME`), the bot picks up the same credentials and applies them to all internal communication — session HTTP calls, the SSE `/event` stream, and readiness probes.
 
 ```bash
-# Example: start the bot with upstream opencode auth enabled
 OPENCODE_SERVER_PASSWORD='your-password' remote-opencode start
 ```
-
-Notes:
-
-- Behavior is **unchanged when these env vars are not set** — this is purely
-  optional hardening / compatibility for users who already rely on upstream
-  `opencode serve` auth.
-- This is **not a replacement** for the Discord allowlist described above; it is
-  an additional layer for the local HTTP surface only.
-- `OPENCODE_SERVER_USERNAME` defaults to `opencode` to match upstream.
-- Misconfiguration produces a clear error (e.g. `opencode server rejected
-credentials (HTTP 401) ...`) rather than a vague connection failure.
 
 ---
 
@@ -668,7 +587,7 @@ All configuration is stored in `~/.remote-opencode/`:
 | File          | Purpose                                       |
 | ------------- | --------------------------------------------- |
 | `config.json` | Bot credentials (token, client ID, guild ID)  |
-| `data.json`   | Project paths, channel bindings, session data |
+| `data.json`   | Projects, bindings, sessions, hub, archives   |
 
 ### config.json Structure
 
@@ -677,32 +596,96 @@ All configuration is stored in `~/.remote-opencode/`:
   "discordToken": "your-bot-token",
   "clientId": "your-application-id",
   "guildId": "your-server-id",
-  "allowedUserIds": ["123456789012345678"],
-  "openaiApiKey": "sk-..."
+  "allowedUserIds": ["123456789012345678"]
 }
 ```
 
-> `allowedUserIds` is optional. When omitted or empty, access control is disabled and all users can use the bot.
-> `openaiApiKey` is optional. When omitted, voice message transcription is disabled. Can also be set via `OPENAI_API_KEY` environment variable (takes priority).
+> `allowedUserIds` is optional. When omitted or empty, access control is disabled.
 
 ### data.json Structure
 
 ```json
 {
   "projects": [
-    { "alias": "myapp", "path": "/Users/you/projects/my-app", "autoWorktree": true }
+    { "alias": "myapp", "path": "/Users/you/projects/my-app" }
   ],
   "bindings": [
-    { "channelId": "channel-id", "projectAlias": "myapp" }
+    { "channelId": "channel-id", "projectAlias": "myapp", "model": "deepseek/deepseek-flash" }
   ],
   "threadSessions": [ ... ],
-  "worktreeMappings": [ ... ]
+  "worktreeMappings": [ ... ],
+  "hub": {
+    "hubChannelId": "hub-channel-id",
+    "categoryId": "sesiones-category-id",
+    "projectAlias": "myapp",
+    "model": "deepseek/deepseek-flash",
+    "agent": "build"
+  },
+  "channelAgents": [ { "channelId": "channel-id", "agent": "build" } ],
+  "archivedSessions": [ ... ]
 }
 ```
 
-| Field                     | Description                                               |
-| ------------------------- | --------------------------------------------------------- |
-| `projects[].autoWorktree` | Optional. When `true`, new sessions auto-create worktrees |
+| Field            | Description                                                        |
+| ---------------- | ------------------------------------------------------------------ |
+| `hub`            | Hub channel, category, default project alias, model and agent mode |
+| `channelAgents`  | Per-channel agent mode (`build` / `plan`)                          |
+| `archivedSessions` | Archived session channels, ready to be reopened                  |
+
+### Environment variables
+
+| Variable | Description |
+|---|---|
+| `HANDY_BIN` | Path to the Handy binary (default `/usr/bin/handy`) |
+| `HANDY_MODEL` | Force a Handy model id for transcription |
+| `HANDY_TIMEOUT_MS` | Handy transcription timeout in ms (default `120000`) |
+| `OPENCODE_SERVER_PASSWORD` | Optional HTTP Basic auth password for `opencode serve` |
+| `OPENCODE_SERVER_USERNAME` | Optional auth username (default `opencode`) |
+| `HTTP_PROXY` / `HTTPS_PROXY` / `ALL_PROXY` / `NO_PROXY` | Proxy support for outbound requests |
+
+---
+
+## Run as a systemd service
+
+Run the bot in the background and start it on boot:
+
+`/etc/systemd/system/remote-opencode.service`:
+
+```ini
+[Unit]
+Description=remote-opencode Discord bot
+After=network.target
+
+[Service]
+Type=simple
+User=felipe
+WorkingDirectory=/home/felipe/Documents/Github/remote-opencode
+Environment=PATH=/home/felipe/.nvm/versions/node/v24.15.0/bin:/home/felipe/.opencode/bin:/usr/local/bin:/usr/bin:/bin
+# Required so Handy can initialize GTK for local transcription
+Environment=DISPLAY=:0
+Environment=WAYLAND_DISPLAY=wayland-0
+Environment=XDG_RUNTIME_DIR=/run/user/1000
+ExecStart=/home/felipe/.nvm/versions/node/v24.15.0/bin/node --no-deprecation /home/felipe/Documents/Github/remote-opencode/dist/src/cli.js start
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+```
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable --now remote-opencode
+sudo journalctl -u remote-opencode -f
+```
+
+Adjust the paths, user and display variables to your environment. If you don't use voice, the `DISPLAY`/`WAYLAND_DISPLAY`/`XDG_RUNTIME_DIR` lines can be omitted.
+
+---
+
+## Proxy Support
+
+`remote-opencode` supports HTTP proxy environments for Discord and other external API requests via `HTTP_PROXY`, `HTTPS_PROXY`, `ALL_PROXY`, and `NO_PROXY`. Local OpenCode traffic is always kept direct (`localhost`, `127.0.0.1`, `::1` are excluded automatically).
 
 ---
 
@@ -711,36 +694,43 @@ All configuration is stored in `~/.remote-opencode/`:
 ### Bot doesn't respond to commands
 
 1. **Check bot is online:** Look for the bot in your server's member list
-2. **Verify permissions:** Bot needs these permissions:
-   - Send Messages
-   - Create Public Threads
-   - Send Messages in Threads
-   - Embed Links
-   - Read Message History
+2. **Verify permissions:** the bot needs Manage Channels, Send Messages, Manage Messages, Embed Links, Read Message History, and (for legacy flows) Create Public Threads
 3. **Redeploy commands:**
    ```bash
    remote-opencode deploy
    ```
 
+### Voice transcription fails with "Failed to initialize GTK"
+
+Handy needs a display server even in headless mode. When running under systemd, add the graphical session environment to the unit:
+
+```ini
+Environment=DISPLAY=:0
+Environment=WAYLAND_DISPLAY=wayland-0
+Environment=XDG_RUNTIME_DIR=/run/user/1000
+```
+
+Then restart the service.
+
 ### "No project set for this channel"
 
-You need to bind a project to the channel:
+Bind a project first:
 
 ```
 /setpath alias:myproject path:/path/to/project
 /use alias:myproject
 ```
 
-### "Cannot create thread"
+Or set the default project from the hub with **📂 Proyecto**.
 
-For private or restricted channels, make sure the bot user or bot role can access the target channel and has these permissions: View Channel, Send Messages, Create Public Threads, Send Messages in Threads, and Read Message History.
+### "Cannot create thread" / session channel not created
+
+Make sure the bot has **Manage Channels** and can access the channel/category.
 
 ### Commands not appearing in Discord
 
-Slash commands can take up to an hour to propagate globally. For faster updates:
-
 1. Kick the bot from your server
-2. Re-invite it
+2. Re-invite it with the invite URL above
 3. Run `remote-opencode deploy`
 
 ### OpenCode server errors
@@ -752,33 +742,14 @@ Slash commands can take up to an hour to propagate globally. For faster updates:
 2. **Check if another process is using the port**
 3. **Ensure the project path exists and is accessible**
 
-### Session connection issues
-
-The bot maintains persistent sessions. If you encounter issues:
-
-1. Start a new thread with `/opencode` instead of continuing in an old one
-2. Restart the bot: `remote-opencode start`
-
 ### Bot crashes on startup
 
 1. **Check Node.js version:**
    ```bash
    node --version  # Should be 22+
    ```
-2. **Verify configuration:**
-   ```bash
-   remote-opencode config
-   ```
-3. **Re-run setup:**
-   ```bash
-   remote-opencode setup
-   ```
-
-### Proxy environments still fail
-
-1. Confirm `HTTP_PROXY`, `HTTPS_PROXY`, or `ALL_PROXY` is set in the same shell where you start the bot
-2. Check whether a custom `NO_PROXY` value is excluding a required remote host
-3. Leave loopback traffic direct; the bot already auto-adds `localhost`, `127.0.0.1`, and `::1`
+2. **Verify configuration:** `remote-opencode config`
+3. **Re-run setup:** `remote-opencode setup`
 
 ---
 
@@ -787,7 +758,7 @@ The bot maintains persistent sessions. If you encounter issues:
 ### Run from source
 
 ```bash
-git clone https://github.com/RoundTable02/remote-opencode.git
+git clone https://github.com/Felipe-258/remote-opencode.git
 cd remote-opencode
 npm install
 
@@ -813,6 +784,7 @@ src/
 ├── cli.ts                 # CLI entry point
 ├── bot.ts                 # Discord client initialization
 ├── commands/              # Slash command definitions
+│   ├── hub.ts             # Hub / launcher panel with buttons
 │   ├── opencode.ts        # Main AI interaction command
 │   ├── code.ts            # Passthrough mode toggle
 │   ├── work.ts            # Worktree management
@@ -820,27 +792,28 @@ src/
 │   ├── model.ts           # AI model list/set with autocomplete
 │   ├── session.ts         # Session browsing and management
 │   ├── allow.ts           # Allowlist management
-│   ├── voice.ts           # Voice transcription settings
+│   ├── voice.ts           # Voice transcription status
 │   ├── setpath.ts         # Project registration
 │   ├── projects.ts        # List projects
 │   └── use.ts             # Channel binding
 ├── handlers/              # Interaction handlers
-│   ├── interactionHandler.ts
-│   ├── buttonHandler.ts
-│   └── messageHandler.ts  # Passthrough + voice message handling
+│   ├── interactionHandler.ts  # Commands, modals, select menus
+│   ├── buttonHandler.ts       # Buttons (sticky panels, hub)
+│   └── messageHandler.ts      # Passthrough + voice message handling
 ├── services/              # Core business logic
 │   ├── serveManager.ts    # OpenCode process management
 │   ├── sessionManager.ts  # Session state management
+│   ├── sessionFlow.ts     # Session channels, sticky messages, archive/reopen
 │   ├── queueManager.ts    # Automated job queuing (incl. voice)
 │   ├── executionService.ts # Core prompt execution logic
-│   ├── voiceService.ts    # Voice message STT (OpenAI Whisper)
+│   ├── voiceService.ts    # Voice transcription (Handy local)
 │   ├── sseClient.ts       # Real-time event streaming
 │   ├── dataStore.ts       # Persistent storage
 │   ├── configStore.ts     # Bot configuration
 │   └── worktreeManager.ts # Git worktree operations
 ├── setup/                 # Setup wizard
-│   ├── wizard.ts          # Interactive setup (incl. voice opt-in)
-│   └── deploy.ts          # Command deployment
+│   ├── wizard.ts
+│   └── deploy.ts
 └── utils/                 # Utilities
     ├── messageFormatter.ts
     └── threadHelper.ts
@@ -851,92 +824,6 @@ src/
 ## Changelog
 
 See [CHANGELOG.md](CHANGELOG.md) for a full history of changes.
-
-### [1.5.1] - 2026-03-24
-
-#### Added
-
-- **Proxy Support**: HTTP proxy environments for Discord requests via `HTTP_PROXY`, `HTTPS_PROXY`, `ALL_PROXY`, and `NO_PROXY`. Local OpenCode traffic is automatically excluded.
-
-#### Fixed
-
-- **Shell Spawn Removed**: OpenCode is now launched directly instead of through a shell, fixing service-environment failures.
-- **Silent Error Swallowing**: Discord message edit failures now fall back to sending new messages instead of silently dropping AI responses.
-- **Model Provider Prefix**: `/model set` no longer strips the provider prefix, fixing "Model not found" errors. Carriage returns in model names are now sanitized.
-
-### [1.5.0] - 2026-03-16
-
-#### Added
-
-- **`/session` Command**: Browse, attach, detach, and inspect OpenCode CLI sessions from Discord — resume previous conversations or share sessions across threads.
-- **Model Autocomplete**: `/model set` now suggests model names as you type.
-- **Full Model List**: `/model list` shows all available models without per-provider caps.
-
-#### Changed
-
-- Model validation now uses a fast in-memory cache instead of blocking CLI calls.
-
-### [1.4.0] - 2026-03-10
-
-#### Added
-
-- **Voice Message Transcription**: Send voice messages in `/code` passthrough threads — automatically transcribed via OpenAI Whisper and processed as text prompts.
-- **`/voice` Slash Command**: Check status and manage voice transcription settings from Discord.
-- **CLI Voice Management**: `remote-opencode voice set|remove|status` commands for managing the OpenAI API key.
-- **Setup Wizard Integration**: Optional step to configure voice transcription during initial setup.
-
-### [1.3.0] - 2026-03-02
-
-#### Added
-
-- **`/diff` Command**: View git diffs directly from Discord — ideal for reviewing AI-made changes on mobile.
-
-### [1.2.0] - 2026-02-15
-
-#### Added
-
-- **Owner/Admin Authentication**: User allowlist system to restrict bot access to authorized Discord users only.
-- **`/allow` Slash Command**: Manage the allowlist directly from Discord (add, remove, list users).
-- **CLI Allowlist Management**: `remote-opencode allow add|remove|list|reset` commands for managing access control from the terminal.
-- **Setup Wizard Integration**: Step 5 prompts for owner Discord user ID during initial setup.
-
-#### Security
-
-- Initial allowlist setup is restricted to CLI and setup wizard only — prevents bootstrap attacks from Discord.
-- Config file permissions hardened to `0o600` (owner-read/write only).
-- Discord user ID validation enforces snowflake format (`/^\d{17,20}$/`).
-- Cannot remove the last authorized user via Discord or CLI `remove` — prevents lockout.
-
-### [1.1.0] - 2026-02-05
-
-#### Added
-
-- **Automated Message Queuing**: Added a new system to queue multiple prompts in a thread. If the bot is busy, new messages are automatically queued and processed sequentially.
-- **Queue Management**: New `/queue` slash command suite to list, clear, pause, resume, and configure queue settings.
-
-### [1.0.10] - 2026-02-04
-
-#### Added
-
-- New `/setports` slash command to configure the port range for OpenCode server instances.
-
-#### Fixed
-
-- Fixed Windows-specific spawning issue (targeting `opencode.cmd`).
-- Resolved `spawn EINVAL` errors on Windows.
-- Improved server reliability and suppressed `DEP0190` security warnings.
-
-### [1.0.9] - 2026-02-04
-
-#### Added
-
-- New `/model` slash command to set AI models per channel.
-- Support for `--model` flag in OpenCode server instances.
-
-#### Fixed
-
-- Fixed connection timeout issues.
-- Standardized internal communication to use `127.0.0.1`.
 
 ---
 

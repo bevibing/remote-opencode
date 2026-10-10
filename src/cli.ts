@@ -3,12 +3,13 @@ process.removeAllListeners('warning');
 import { Command } from 'commander';
 import pc from 'picocolors';
 import { createRequire } from 'module';
+import { existsSync } from 'node:fs';
 import updateNotifier from 'update-notifier';
 import { runSetupWizard } from './setup/wizard.js';
 import { deployCommands } from './setup/deploy.js';
 import { undeployCommands } from './setup/undeploy.js';
 import { startBot } from './bot.js';
-import { hasBotConfig, getConfigDir, getAllowedUserIds, addAllowedUserId, removeAllowedUserId, setAllowedUserIds, getOpenAIApiKey, setOpenAIApiKey, removeOpenAIApiKey } from './services/configStore.js';
+import { hasBotConfig, getConfigDir, getAllowedUserIds, addAllowedUserId, removeAllowedUserId, setAllowedUserIds } from './services/configStore.js';
 
 const require = createRequire(import.meta.url);
 // In dev mode (src/cli.ts), package.json is one level up
@@ -144,43 +145,23 @@ allowCmd
     console.log(pc.green('✅ Allowlist cleared. All server members can now use the bot.'));
   });
 
-const voiceCmd = program.command('voice').description('Manage voice transcription settings');
-
-voiceCmd
-  .command('set <apiKey>')
-  .description('Set OpenAI API key for voice transcription')
-  .action((apiKey: string) => {
-    if (!apiKey.startsWith('sk-') || apiKey.length < 20) {
-      console.log(pc.red('❌ Invalid API key format. Must start with "sk-" and be at least 20 characters.'));
-      process.exit(1);
-    }
-    setOpenAIApiKey(apiKey);
-    console.log(pc.green('✅ OpenAI API key set. Voice transcription is now enabled.'));
-  });
-
-voiceCmd
-  .command('remove')
-  .description('Remove OpenAI API key')
-  .action(() => {
-    removeOpenAIApiKey();
-    console.log(pc.green('✅ OpenAI API key removed. Voice transcription is now disabled.'));
-  });
+const voiceCmd = program.command('voice').description('Voice transcription (Handy local)');
 
 voiceCmd
   .command('status')
   .description('Show voice transcription status')
   .action(() => {
-    const envKey = process.env.OPENAI_API_KEY;
-    const configKey = getOpenAIApiKey();
-    if (!configKey) {
+    const handyBin = process.env.HANDY_BIN || '/usr/bin/handy';
+    const installed = existsSync(handyBin);
+    if (!installed) {
       console.log(pc.yellow('🎙️ Voice Transcription: Disabled'));
-      console.log('  No OpenAI API key configured.');
+      console.log(`  Handy not found at ${handyBin}. Install it with: sudo apt install handy`);
     } else {
-      const source = envKey ? 'environment variable' : 'config file';
-      const masked = configKey.slice(0, 3) + '...' + configKey.slice(-6);
-      console.log(pc.green('🎙️ Voice Transcription: Enabled'));
-      console.log(`  Source: ${source}`);
-      console.log(`  API Key: ${masked}`);
+      console.log(pc.green('🎙️ Voice Transcription: Enabled (Handy local)'));
+      console.log(`  Binary: ${handyBin}`);
+      if (process.env.HANDY_MODEL) {
+        console.log(`  Model: ${process.env.HANDY_MODEL}`);
+      }
     }
   });
 

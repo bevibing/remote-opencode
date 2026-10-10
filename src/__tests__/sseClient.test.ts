@@ -450,4 +450,143 @@ describe("SSEClient", () => {
       );
     });
   });
+
+  describe("onQuestionAsked", () => {
+    it("should trigger callback for question.asked events", () => {
+      const callback = vi.fn();
+      client.connect("http://127.0.0.1:3000");
+      client.onQuestionAsked(callback);
+
+      const messageHandler =
+        mockEventSourceInstance.addEventListener.mock.calls.find(
+          (call: any) => call[0] === "message",
+        )?.[1];
+
+      messageHandler({
+        data: JSON.stringify({
+          type: "question.asked",
+          properties: {
+            id: "que_1",
+            sessionID: "session-1",
+            questions: [
+              {
+                header: "Modo",
+                question: "¿Qué modo usás?",
+                options: [{ label: "Plan", description: "no toca archivos" }],
+              },
+            ],
+          },
+        }),
+      });
+
+      expect(callback).toHaveBeenCalledWith(
+        expect.objectContaining({
+          id: "que_1",
+          sessionID: "session-1",
+          questions: [
+            expect.objectContaining({ header: "Modo", question: "¿Qué modo usás?" }),
+          ],
+        }),
+      );
+    });
+
+    it("should not trigger when id or sessionID is missing", () => {
+      const callback = vi.fn();
+      client.connect("http://127.0.0.1:3000");
+      client.onQuestionAsked(callback);
+
+      const messageHandler =
+        mockEventSourceInstance.addEventListener.mock.calls.find(
+          (call: any) => call[0] === "message",
+        )?.[1];
+
+      messageHandler({
+        data: JSON.stringify({ type: "question.asked", properties: { questions: [] } }),
+      });
+
+      expect(callback).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("onPermissionAsked", () => {
+    it("should trigger callback for permission.asked events (v1 fields)", () => {
+      const callback = vi.fn();
+      client.connect("http://127.0.0.1:3000");
+      client.onPermissionAsked(callback);
+
+      const messageHandler =
+        mockEventSourceInstance.addEventListener.mock.calls.find(
+          (call: any) => call[0] === "message",
+        )?.[1];
+
+      messageHandler({
+        data: JSON.stringify({
+          type: "permission.asked",
+          properties: {
+            id: "per_1",
+            sessionID: "session-1",
+            permission: "bash",
+            patterns: ["ls"],
+            metadata: { command: "ls -la" },
+          },
+        }),
+      });
+
+      expect(callback).toHaveBeenCalledWith(
+        expect.objectContaining({
+          id: "per_1",
+          sessionID: "session-1",
+          permission: "bash",
+          patterns: ["ls"],
+        }),
+      );
+    });
+
+    it("should trigger callback for permission.asked events (v2 fields)", () => {
+      const callback = vi.fn();
+      client.connect("http://127.0.0.1:3000");
+      client.onPermissionAsked(callback);
+
+      const messageHandler =
+        mockEventSourceInstance.addEventListener.mock.calls.find(
+          (call: any) => call[0] === "message",
+        )?.[1];
+
+      messageHandler({
+        data: JSON.stringify({
+          type: "permission.asked",
+          properties: {
+            id: "per_2",
+            sessionID: "session-2",
+            action: "bash",
+            resources: ["ls"],
+          },
+        }),
+      });
+
+      expect(callback).toHaveBeenCalledWith(
+        expect.objectContaining({ id: "per_2", action: "bash", resources: ["ls"] }),
+      );
+    });
+
+    it("should not trigger when sessionID is missing", () => {
+      const callback = vi.fn();
+      client.connect("http://127.0.0.1:3000");
+      client.onPermissionAsked(callback);
+
+      const messageHandler =
+        mockEventSourceInstance.addEventListener.mock.calls.find(
+          (call: any) => call[0] === "message",
+        )?.[1];
+
+      messageHandler({
+        data: JSON.stringify({
+          type: "permission.asked",
+          properties: { id: "per_3" },
+        }),
+      });
+
+      expect(callback).not.toHaveBeenCalled();
+    });
+  });
 });

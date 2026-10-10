@@ -2,6 +2,92 @@ export function stripAnsi(text: string): string {
   return text.replace(/\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])/g, '');
 }
 
+function isTableRow(line: string): boolean {
+  const t = line.trim();
+  if (!t.startsWith('|')) return false;
+  return (t.match(/\|/g) || []).length >= 2;
+}
+
+function parseRow(line: string): string[] {
+  let s = line.trim();
+  if (s.startsWith('|')) s = s.slice(1);
+  if (s.endsWith('|') && !s.endsWith('\\|')) s = s.slice(0, -1);
+  return s
+    .replace(/\\\|/g, '\u0000')
+    .split('|')
+    .map((cell) => cell.trim().replace(/`/g, '').replace(/\u0000/g, '|'));
+}
+
+function isSeparatorRow(cells: string[]): boolean {
+  return cells.length > 0 && cells.every((c) => /^:?-{2,}:?$/.test(c));
+}
+
+function renderTable(rows: string[]): string {
+  const parsed = rows.map(parseRow);
+  const maxCols = Math.max(...parsed.map((r) => r.length));
+  const sepIndex = parsed.findIndex(isSeparatorRow);
+
+  const widths: number[] = [];
+  for (let c = 0; c < maxCols; c++) {
+    let w = 0;
+    for (const r of parsed) {
+      if (r[c] !== undefined) w = Math.max(w, r[c].length);
+    }
+    widths.push(w);
+  }
+
+  const fmt = (cells: string[]): string => {
+    const arr: string[] = new Array(maxCols).fill('');
+    cells.forEach((c, idx) => {
+      arr[idx] = c;
+    });
+    return '| ' + arr.map((c, idx) => c.padEnd(widths[idx])).join(' | ') + ' |';
+  };
+
+  const result: string[] = [];
+  parsed.forEach((r, idx) => {
+    if (idx === sepIndex) return;
+    result.push(fmt(r));
+  });
+
+  if (sepIndex > 0) {
+    result.splice(1, 0, '|' + widths.map((w) => '-'.repeat(w + 2)).join('|') + '|');
+  }
+
+  return '```\n' + result.join('\n') + '\n```';
+}
+
+export function formatMarkdownTables(text: string): string {
+  const lines = text.split('\n');
+  const out: string[] = [];
+  let inCode = false;
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const trimmed = line.trim();
+
+    if (trimmed.startsWith('```')) {
+      out.push(line);
+      inCode = !inCode;
+      continue;
+    }
+
+    if (!inCode && isTableRow(line)) {
+      const block: string[] = [];
+      while (i < lines.length && !lines[i].trim().startsWith('```') && isTableRow(lines[i])) {
+        block.push(lines[i]);
+        i++;
+      }
+      i--;
+      out.push(renderTable(block));
+    } else {
+      out.push(line);
+    }
+  }
+
+  return out.join('\n');
+}
+
 export interface SSEEvent {
   type: string;
   properties: {
@@ -79,6 +165,9 @@ export function parseOpenCodeOutput(buffer: string): string {
   }
 
   let result = textParts.join('\n');
+
+  // Render markdown tables as monospace blocks (Discord doesn't render tables)
+  result = formatMarkdownTables(result);
 
   if (lastFinish?.part?.tokens) {
     const tokens = lastFinish.part.tokens;

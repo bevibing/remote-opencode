@@ -11,6 +11,7 @@ import {
 import * as dataStore from '../services/dataStore.js';
 import * as serveManager from '../services/serveManager.js';
 import * as sessionManager from '../services/sessionManager.js';
+import * as sessionSync from '../services/sessionSync.js';
 import type { Command } from './index.js';
 
 function getParentChannelId(interaction: ChatInputCommandInteraction): string {
@@ -56,6 +57,11 @@ export const session: Command = {
       subcommand
         .setName('info')
         .setDescription('Show info for the session attached to this thread')
+    )
+    .addSubcommand((subcommand) =>
+      subcommand
+        .setName('sync')
+        .setDescription('Traer los mensajes nuevos de la sesión a este canal')
     ) as SlashCommandBuilder,
 
   async execute(interaction: ChatInputCommandInteraction) {
@@ -274,6 +280,39 @@ export const session: Command = {
       return;
     }
 
+    if (subcommand === 'sync') {
+      const thread = interaction.channel;
+      if (!thread?.isTextBased() || thread.isDMBased()) {
+        await interaction.reply({
+          content: '❌ Este comando solo funciona en un canal de sesión.',
+          flags: MessageFlags.Ephemeral,
+        });
+        return;
+      }
+      const currentSession = sessionManager.getSessionForThread(interaction.channelId);
+      if (!currentSession) {
+        await interaction.reply({
+          content: '❌ No hay sesión adjunta a este canal.',
+          flags: MessageFlags.Ephemeral,
+        });
+        return;
+      }
+      await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+      try {
+        const result = await sessionSync.syncSessionToChannel(thread, interaction.channelId);
+        await interaction.editReply(
+          result.posted > 0
+            ? `🔄 Sincronizados ${result.posted} mensajes nuevos.`
+            : '🔄 Sin mensajes nuevos para sincronizar.',
+        );
+      } catch (error) {
+        await interaction.editReply(
+          `❌ No se pudo sincronizar: ${(error as Error).message}`,
+        );
+      }
+      return;
+    }
+
     if (subcommand === 'info') {
       const thread = interaction.channel;
       if (!thread?.isThread()) {
@@ -311,6 +350,7 @@ export const session: Command = {
           .addFields(
             { name: 'Session ID', value: `\`${currentSession.sessionId}\`` },
             { name: 'Project Path', value: `\`${projectPath}\`` },
+            { name: 'Directory', value: `\`${sessionInfo?.directory ?? projectPath}\`` },
             { name: 'Port', value: `\`${port}\``, inline: true },
             { name: 'Status', value: isAlive ? 'alive' : 'dead', inline: true },
             {
@@ -323,7 +363,11 @@ export const session: Command = {
               value: threadSession ? formatRelativeTime(threadSession.lastUsedAt) : 'unknown',
               inline: true,
             },
-            { name: 'SSE Active', value: isBusy ? 'true' : 'false', inline: true }
+            { name: 'SSE Active', value: isBusy ? 'true' : 'false', inline: true },
+            {
+              name: 'Continuar en local',
+              value: `\`\`\`\ncd ${projectPath} && opencode --session ${currentSession.sessionId}\n\`\`\``,
+            },
           )
           .setColor(isAlive ? 0x2ecc71 : 0xe74c3c);
 

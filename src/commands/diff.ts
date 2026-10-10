@@ -21,6 +21,47 @@ function formatDiff(raw: string): string {
   return '```diff\n' + truncated + '\n```';
 }
 
+export function computeDiff(
+  projectPath: string,
+  target: string = 'unstaged',
+  stat: boolean = false,
+  base: string = 'main',
+): Promise<{ ok: boolean; content?: string; error?: string }> {
+  return (async () => {
+    if (target === 'branch' && !GIT_REF_PATTERN.test(base)) {
+      return { ok: false, error: 'Invalid base branch name.' };
+    }
+
+    let gitArgs: string[];
+    switch (target) {
+      case 'staged':
+        gitArgs = ['diff', '--cached'];
+        break;
+      case 'branch':
+        gitArgs = ['diff', `${base}...HEAD`];
+        break;
+      default:
+        gitArgs = ['diff'];
+    }
+
+    if (stat) {
+      gitArgs.push('--stat');
+    }
+
+    try {
+      const { stdout } = await execFileAsync('git', gitArgs, { cwd: projectPath });
+      const output = stdout.trim();
+      if (!output) {
+        const targetLabel = target === 'branch' ? `branch (base: ${base})` : target;
+        return { ok: true, content: `✅ No ${targetLabel} changes.` };
+      }
+      return { ok: true, content: formatDiff(output) };
+    } catch (error) {
+      return { ok: false, error: (error as Error).message };
+    }
+  })();
+}
+
 export const diff: Command = {
   data: new SlashCommandBuilder()
     .setName('diff')
@@ -82,42 +123,13 @@ export const diff: Command = {
       return;
     }
 
-    if (target === 'branch' && !GIT_REF_PATTERN.test(base)) {
-      await i.reply({ content: '❌ Invalid base branch name.', flags: MessageFlags.Ephemeral });
-      return;
-    }
-
     await i.deferReply();
 
-    try {
-      let gitArgs: string[];
-      switch (target) {
-        case 'staged':
-          gitArgs = ['diff', '--cached'];
-          break;
-        case 'branch':
-          gitArgs = ['diff', `${base}...HEAD`];
-          break;
-        default:
-          gitArgs = ['diff'];
-      }
-
-      if (stat) {
-        gitArgs.push('--stat');
-      }
-
-      const { stdout } = await execFileAsync('git', gitArgs, { cwd: projectPath });
-      const output = stdout.trim();
-
-      if (!output) {
-        const targetLabel = target === 'branch' ? `branch (base: ${base})` : target;
-        await i.editReply(`✅ No ${targetLabel} changes.`);
-        return;
-      }
-
-      await i.editReply(formatDiff(output));
-    } catch (error) {
-      await i.editReply(`❌ Failed to get diff: ${(error as Error).message}`);
+    const result = await computeDiff(projectPath, target, stat, base);
+    if (result.ok) {
+      await i.editReply(result.content as string);
+    } else {
+      await i.editReply(`❌ Failed to get diff: ${result.error}`);
     }
   }
 };

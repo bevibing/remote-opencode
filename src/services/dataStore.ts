@@ -1,7 +1,7 @@
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
-import type { DataStore, ProjectConfig, ChannelBinding, ThreadSession, WorktreeMapping, PassthroughThread, QueuedMessage, QueueSettings } from '../types/index.js';
+import type { DataStore, ProjectConfig, ChannelBinding, ThreadSession, WorktreeMapping, PassthroughThread, QueuedMessage, QueueSettings, HubConfig, ArchivedSession, AgentMode } from '../types/index.js';
 import { sanitizeModel } from '../utils/stringUtils.js';
 
 
@@ -133,14 +133,46 @@ export function updateThreadSessionLastUsed(threadId: string): void {
 
 export function clearThreadSession(threadId: string): void {
   const data = loadData();
+  let changed = false;
   if (data.threadSessions) {
-    data.threadSessions = data.threadSessions.filter(s => s.threadId !== threadId);
+    const filtered = data.threadSessions.filter(s => s.threadId !== threadId);
+    if (filtered.length !== data.threadSessions.length) {
+      data.threadSessions = filtered;
+      changed = true;
+    }
+  }
+  if (data.syncCursors && data.syncCursors[threadId] !== undefined) {
+    delete data.syncCursors[threadId];
+    changed = true;
+  }
+  if (changed) {
     saveData(data);
   }
 }
 
 export function getAllThreadSessions(): ThreadSession[] {
   return loadData().threadSessions ?? [];
+}
+
+export function getSyncCursor(threadId: string): string | undefined {
+  return loadData().syncCursors?.[threadId];
+}
+
+export function setSyncCursor(threadId: string, messageId: string): void {
+  const data = loadData();
+  if (!data.syncCursors) {
+    data.syncCursors = {};
+  }
+  data.syncCursors[threadId] = messageId;
+  saveData(data);
+}
+
+export function clearSyncCursor(threadId: string): void {
+  const data = loadData();
+  if (data.syncCursors && data.syncCursors[threadId] !== undefined) {
+    delete data.syncCursors[threadId];
+    saveData(data);
+  }
 }
 
 export function setWorktreeMapping(mapping: WorktreeMapping): void {
@@ -256,6 +288,63 @@ export function setProjectAutoPassthrough(alias: string, enabled: boolean): bool
 export function getProjectAutoPassthrough(alias: string): boolean {
   const project = getProject(alias);
   return project?.autoPassthrough ?? false;
+}
+
+export function getHubConfig(): HubConfig | undefined {
+  return loadData().hub;
+}
+
+export function setHubConfig(hub: HubConfig): void {
+  const data = loadData();
+  data.hub = hub;
+  saveData(data);
+}
+
+export function getArchivedSessions(): ArchivedSession[] {
+  return loadData().archivedSessions ?? [];
+}
+
+export function getArchivedSession(channelId: string): ArchivedSession | undefined {
+  return loadData().archivedSessions?.find((a) => a.channelId === channelId);
+}
+
+export function setArchivedSession(session: ArchivedSession): void {
+  const data = loadData();
+  if (!data.archivedSessions) data.archivedSessions = [];
+  data.archivedSessions = data.archivedSessions.filter((a) => a.channelId !== session.channelId);
+  data.archivedSessions.push(session);
+  saveData(data);
+}
+
+export function removeArchivedSession(channelId: string): void {
+  const data = loadData();
+  if (!data.archivedSessions) return;
+  data.archivedSessions = data.archivedSessions.filter((a) => a.channelId !== channelId);
+  saveData(data);
+}
+
+export function getChannelAgent(channelId: string): AgentMode {
+  const data = loadData();
+  return data.channelAgents?.find((a) => a.channelId === channelId)?.agent ?? 'build';
+}
+
+export function setChannelAgent(channelId: string, agent: AgentMode): void {
+  const data = loadData();
+  if (!data.channelAgents) data.channelAgents = [];
+  const existing = data.channelAgents.findIndex((a) => a.channelId === channelId);
+  if (existing >= 0) {
+    data.channelAgents[existing].agent = agent;
+  } else {
+    data.channelAgents.push({ channelId, agent });
+  }
+  saveData(data);
+}
+
+export function clearChannelAgent(channelId: string): void {
+  const data = loadData();
+  if (!data.channelAgents) return;
+  data.channelAgents = data.channelAgents.filter((a) => a.channelId !== channelId);
+  saveData(data);
 }
 
 // Queue Management

@@ -5,6 +5,7 @@ import { delimiter, join } from "node:path";
 import type { ServeInstance } from "../types/index.js";
 import { getPortConfig } from "./configStore.js";
 import { getAuthHeaders, isAuthEnabled } from "./serverAuth.js";
+import { ensureWatcher, stopAllWatchers } from "./backgroundWatcher.js";
 
 const DEFAULT_PORT_MIN = 14097;
 const DEFAULT_PORT_MAX = 14200;
@@ -195,6 +196,9 @@ export async function spawnServe(
 
   instances.set(key, instance);
 
+  // Watch this serve instance for background session questions/permissions
+  ensureWatcher(port);
+
   let stderrBuffer = "";
   let stdoutBuffer = "";
 
@@ -336,6 +340,7 @@ export async function waitForReady(
 }
 
 export function stopAll(): void {
+  stopAllWatchers();
   for (const [key, instance] of instances) {
     instance.process.kill();
     cleanupInstance(key);

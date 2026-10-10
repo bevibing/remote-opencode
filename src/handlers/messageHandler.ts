@@ -30,7 +30,11 @@ export async function handleMessageCreate(message: Message): Promise<void> {
   if (message.system) return;
   
   const channel = message.channel;
-  if (!channel.isThread()) return;
+  const isThread = typeof channel.isThread === 'function' ? channel.isThread() : false;
+  const isText = !isThread && typeof (channel as any).isTextBased === 'function'
+    ? (channel as any).isTextBased()
+    : 'send' in channel;
+  if (!isThread && !isText) return;
   
   const threadId = channel.id;
   
@@ -38,8 +42,10 @@ export async function handleMessageCreate(message: Message): Promise<void> {
   
   if (!isAuthorized(message.author.id)) return;
   
-  const parentChannelId = (channel as ThreadChannel).parentId;
-  if (!parentChannelId) return;
+  let parentChannelId = channel.id;
+  if (channel.isThread()) {
+    parentChannelId = (channel as ThreadChannel).parentId ?? channel.id;
+  }
   
   let prompt = message.content.trim();
 

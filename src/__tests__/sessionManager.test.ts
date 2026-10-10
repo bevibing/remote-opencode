@@ -60,6 +60,11 @@ import {
   setSseClient,
   getSseClient,
   clearSseClient,
+  replyToQuestion,
+  rejectQuestion,
+  replyToPermission,
+  listQuestions,
+  listPermissions,
 } from "../services/sessionManager.js";
 import { SSEClient } from "../services/sseClient.js";
 
@@ -379,6 +384,38 @@ describe("SessionManager", () => {
     });
   });
 
+  describe("session time normalization", () => {
+    it("maps the OpenCode { created, updated } time object to sortable strings", async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => [
+          { id: "ses_a", title: "A", time: { created: 1000, updated: 2000 } },
+        ],
+      });
+      const [s] = await listSessions(3000);
+      expect(s.time).toBe("2000");
+      expect(() => s.time!.localeCompare("1")).not.toThrow();
+    });
+
+    it("unwraps a { data: [...] } response and normalizes numeric time", async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ data: [{ id: "ses_b", title: "B", time: 1234 }] }),
+      });
+      const [s] = await listSessions(3000);
+      expect(s.time).toBe("1234");
+    });
+
+    it("normalizes getSessionInfo time", async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ id: "ses_c", title: "C", time: { created: 5, updated: 9 } }),
+      });
+      const info = await getSessionInfo(3000, "ses_c");
+      expect(info?.time).toBe("9");
+    });
+  });
+
   describe("OPENCODE_SERVER_PASSWORD auth", () => {
     it("does not send Authorization header when env is unset (current behavior)", async () => {
       mockFetch.mockResolvedValueOnce({
@@ -527,5 +564,83 @@ describe("SessionManager", () => {
       await expect(listSessions(3000)).resolves.toEqual([]);
       await expect(abortSession(3000, "ses_abc")).resolves.toBe(false);
     });
+  });
+});
+
+describe("SessionManager question/permission endpoints", () => {
+  const mockFetch = vi.fn();
+
+  beforeEach(() => {
+    vi.stubGlobal("fetch", mockFetch);
+    mockFetch.mockReset();
+    delete process.env.OPENCODE_SERVER_PASSWORD;
+    delete process.env.OPENCODE_SERVER_USERNAME;
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("replies to a question via the legacy /question/{id}/reply endpoint", async () => {
+    mockFetch.mockResolvedValueOnce({ ok: true });
+
+    const ok = await replyToQuestion(3000, "ses_x", "que_y", [["a"], ["b"]]);
+
+    expect(ok).toBe(true);
+    expect(mockFetch).toHaveBeenCalledWith(
+      "http://127.0.0.1:3000/question/que_y/reply",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ answers: [["a"], ["b"]] }),
+      }),
+    );
+  });
+
+  it("rejects a question via the legacy /question/{id}/reject endpoint", async () => {
+    mockFetch.mockResolvedValueOnce({ ok: true });
+
+    await rejectQuestion(3000, "ses_x", "que_y");
+
+    expect(mockFetch).toHaveBeenCalledWith(
+      "http://127.0.0.1:3000/question/que_y/reject",
+      expect.objectContaining({ method: "POST" }),
+    );
+  });
+
+  it("replies to a permission via the legacy /permission/{id}/reply endpoint", async () => {
+    mockFetch.mockResolvedValueOnce({ ok: true });
+
+    const ok = await replyToPermission(3000, "ses_x", "per_y", "once");
+
+    expect(ok).toBe(true);
+    expect(mockFetch).toHaveBeenCalledWith(
+      "http://127.0.0.1:3000/permission/per_y/reply",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ reply: "once" }),
+      }),
+    );
+  });
+
+  it("lists pending questions from the legacy /question endpoint", async () => {
+    const pending = [{ id: "que_y", sessionID: "ses_x", questions: [] }];
+    mockFetch.mockResolvedValueOnce({ ok: true, json: async () => pending });
+
+    await expect(listQuestions(3000)).resolves.toEqual(pending);
+    expect(mockFetch).toHaveBeenCalledWith(
+      "http://127.0.0.1:3000/question",
+      expect.any(Object),
+    );
+  });
+
+  it("lists pending permissions from the legacy /permission endpoint", async () => {
+    const pending = [{ id: "per_y", sessionID: "ses_x", permission: "bash" }];
+    mockFetch.mockResolvedValueOnce({ ok: true, json: async () => pending });
+
+    await expect(listPermissions(3000)).resolves.toEqual(pending);
+    expect(mockFetch).toHaveBeenCalledWith(
+      "http://127.0.0.1:3000/permission",
+      expect.any(Object),
+    );
   });
 });

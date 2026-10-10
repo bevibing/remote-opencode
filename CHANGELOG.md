@@ -2,6 +2,24 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.6.0] - 2026-08-27
+
+### Added
+
+- **Hub (`/hub`)**: launcher channel with a pinned button panel (new session, sessions list, model, project). Remembers default project, model and category.
+- **Session channels**: creating a session opens a dedicated text channel `🤖 <name>` in a `Sesiones` category, bound to the hub's project/model, with passthrough enabled and a pinned panel of sticky buttons (Plan/Build toggle, Interrupt, Diff, Model, Archive, Undo, Status, Compact, Init).
+- **Sessions list**: `📋 Sesiones` now lists the OpenCode sessions persisted on disk (ordered by most recent activity), marks channel-mapped and archived ones, lets you resume an existing OpenCode session in a new Discord channel ("Resumir sesión en Discord"), and reopen archived sessions.
+- **Session title sync**: the session channel is renamed automatically when OpenCode updates the session title.
+- **Local voice transcription with Handy**: replaces the OpenAI Whisper integration. Voice messages in session channels are downloaded, converted to 16 kHz mono WAV with a bundled `ffmpeg-static` binary, and transcribed by the local Handy app (`handy --transcribe-file --json`). Configurable via `HANDY_BIN`, `HANDY_MODEL` and `HANDY_TIMEOUT_MS`.
+- **Passthrough in text channels**: `messageHandler` now accepts passthrough in regular text channels (session channels), not only threads.
+
+### Changed
+
+- **`/opencode`**: in the hub (or any non-session channel) it creates a session channel; in a session channel it runs the prompt there. Legacy thread flow preserved.
+- **`/voice`**: now only reports status (`/voice status`) and reflects the Handy engine. Removed the OpenAI `voice set/remove` CLI subcommands.
+- **Permissions**: the bot now requires `MANAGE_CHANNELS`/`MANAGE_ROLES` to create and hide session channels (invite link uses `permissions=275901456`).
+- **README**: rewritten to document the hub/session-channel UX, Handy voice setup, required Discord permissions, systemd service example and Docker limitations.
+
 ## [Unreleased]
 
 ## [1.5.3] - 2026-04-28

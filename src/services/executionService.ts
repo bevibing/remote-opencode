@@ -11,8 +11,74 @@ import * as sessionManager from './sessionManager.js';
 import * as serveManager from './serveManager.js';
 import * as worktreeManager from './worktreeManager.js';
 import { SSEClient } from './sseClient.js';
+import * as qaPrompts from './qaPrompts.js';
+import * as sessionSync from './sessionSync.js';
 import { formatOutput, formatOutputForMobile, buildContextHeader } from '../utils/messageFormatter.js';
 import { processNextInQueue } from './queueManager.js';
+import type { AgentMode } from '../types/index.js';
+
+function runControlRow(
+  threadId: string,
+  agent: AgentMode,
+  interruptDisabled = false,
+): ActionRowBuilder<ButtonBuilder> {
+  const mode = new ButtonBuilder()
+    .setCustomId(`mode_${threadId}`)
+    .setLabel(agent === 'plan' ? '🎯 Plan' : '🔨 Build')
+    .setStyle(agent === 'plan' ? ButtonStyle.Primary : ButtonStyle.Success);
+
+  const interrupt = new ButtonBuilder()
+    .setCustomId(`interrupt_${threadId}`)
+    .setLabel('⏸️ Interrupt')
+    .setStyle(ButtonStyle.Secondary)
+    .setDisabled(interruptDisabled);
+
+  return new ActionRowBuilder<ButtonBuilder>().addComponents(mode, interrupt);
+}
+
+async function buildRunFooter(
+  port: number,
+  sessionId: string,
+): Promise<string> {
+  try {
+    const info = await sessionManager.getSessionInfo(port, sessionId);
+    if (!info) return '';
+    const parts: string[] = [];
+    if (info.tokens) {
+      parts.push(
+        `📊 Tokens: ${info.tokens.input ?? 0} in / ${info.tokens.output ?? 0} out` +
+          (info.tokens.reasoning ? ` (${info.tokens.reasoning} reasoning)` : ''),
+      );
+    }
+    if (info.cost !== undefined && info.cost > 0) {
+      parts.push(`💰 $${Number(info.cost).toFixed(4)}`);
+    }
+    return parts.length > 0 ? `\n${parts.join(' · ')}` : '';
+  } catch {
+    return '';
+  }
+}
+
+async function syncSessionTitle(
+  channel: TextBasedChannel,
+  port: number,
+  sessionId: string,
+): Promise<void> {
+  try {
+    const info = await sessionManager.getSessionInfo(port, sessionId);
+    if (!info || !info.title) return;
+    if (!('setName' in channel)) return;
+    const current = (channel as any).name;
+    if (!current) return;
+    const prefix = current.startsWith('🔒') ? '🔒' : current.startsWith('🤖') ? '🤖' : null;
+    if (!prefix) return;
+    if (current === `${prefix} ${info.title}`) return;
+    const renamed = `${prefix} ${info.title}`.slice(0, 100);
+    await (channel as any).setName(renamed);
+  } catch {
+    // ignore rename failures
+  }
+}
 
 export async function runPrompt(
   channel: TextBasedChannel, 
@@ -79,18 +145,13 @@ export async function runPrompt(
   
   const effectivePath = worktreeMapping?.worktreePath ?? projectPath;
   const preferredModel = dataStore.getChannelModel(parentChannelId);
+  const agent = dataStore.getChannelAgent(threadId);
   const modelDisplay = preferredModel ? `${preferredModel}` : 'default';
   
   const branchName = worktreeMapping?.branchName ?? await worktreeManager.getCurrentBranch(effectivePath) ?? 'main';
   const contextHeader = buildContextHeader(branchName, modelDisplay);
   
-  const buttons = new ActionRowBuilder<ButtonBuilder>()
-    .addComponents(
-      new ButtonBuilder()
-        .setCustomId(`interrupt_${threadId}`)
-        .setLabel('⏸️ Interrupt')
-        .setStyle(ButtonStyle.Secondary)
-    );
+  const buttons = runControlRow(threadId, agent);
   
   let streamMessage: Message;
   try {
@@ -150,6 +211,36 @@ export async function runPrompt(
     const sseClient = new SSEClient();
     sseClient.connect(`http://127.0.0.1:${port}`);
     sessionManager.setSseClient(threadId, sseClient);
+
+    sseClient.onQuestionAsked((request) => {
+      if (request.sessionID !== sessionId) return;
+      void qaPrompts.postQuestion(channel, port, request);
+    });
+
+    sseClient.onPermissionAsked((request) => {
+      if (request.sessionID !== sessionId) return;
+      void qaPrompts.postPermission(channel, port, request);
+    });
+
+    // Catch-up: post any pending questions/permissions that may have been missed
+    void (async () => {
+      try {
+        const questions = await sessionManager.listQuestions(port);
+        for (const q of questions) {
+          if (q.sessionID === sessionId) {
+            await qaPrompts.postQuestion(channel, port, q);
+          }
+        }
+        const permissions = await sessionManager.listPermissions(port);
+        for (const p of permissions) {
+          if (p.sessionID === sessionId) {
+            await qaPrompts.postPermission(channel, port, p);
+          }
+        }
+      } catch {
+        // ignore catch-up errors
+      }
+    })();
     
     sseClient.onPartUpdated((part) => {
       if (part.sessionID !== sessionId) return;
@@ -173,14 +264,7 @@ export async function runPrompt(
             return;
           }
 
-          const disabledButtons = new ActionRowBuilder<ButtonBuilder>()
-            .addComponents(
-              new ButtonBuilder()
-                .setCustomId(`interrupt_${threadId}`)
-                .setLabel('⏸️ Interrupt')
-                .setStyle(ButtonStyle.Secondary)
-                .setDisabled(true)
-            );
+          const disabledButtons = runControlRow(threadId, agent, true);
 
           if (!accumulatedText.trim()) {
             const edited = await updateStreamMessage(
@@ -205,8 +289,11 @@ export async function runPrompt(
               await safeSend(result.chunks[i]);
             }
             
-            await safeSend('✅ Done');
+            await safeSend('✅ Done' + (await buildRunFooter(port, sessionId)));
           }
+          
+          await syncSessionTitle(channel, port, sessionId);
+          await sessionSync.markThreadSynced(threadId, port, sessionId);
           
           sseClient.disconnect();
           sessionManager.clearSseClient(threadId);
@@ -233,14 +320,7 @@ export async function runPrompt(
       (async () => {
         try {
           const errorMsg = errorInfo.data?.message || errorInfo.name || 'Unknown error';
-          const disabledButtons = new ActionRowBuilder<ButtonBuilder>()
-            .addComponents(
-              new ButtonBuilder()
-                .setCustomId(`interrupt_${threadId}`)
-                .setLabel('⏸️ Interrupt')
-                .setStyle(ButtonStyle.Secondary)
-                .setDisabled(true)
-            );
+          const disabledButtons = runControlRow(threadId, agent, true);
           
           const edited = await updateStreamMessage(
             `${contextHeader}\n📌 **Prompt**: ${prompt}\n\n❌ **Error**: ${errorMsg}`,
@@ -317,7 +397,7 @@ export async function runPrompt(
     }, 1000);
     
     await updateStreamMessage(`${contextHeader}\n📌 **Prompt**: ${prompt}\n\n📝 Sending prompt...`, [buttons]);
-    await sessionManager.sendPrompt(port, sessionId, prompt, preferredModel);
+    await sessionManager.sendPrompt(port, sessionId, prompt, preferredModel, agent);
     promptSent = true;
     
   } catch (error) {
