@@ -1,6 +1,7 @@
 import { EventSource } from "eventsource";
 import type { TextPart, SSEEvent, SessionErrorInfo } from "../types/index.js";
 import { getAuthHeaders } from "./serverAuth.js";
+import type { ApiFamily } from "./serveManager.js";
 
 type PartUpdatedCallback = (part: TextPart) => void;
 type SessionIdleCallback = (sessionId: string) => void;
@@ -17,8 +18,8 @@ export class SSEClient {
   private sessionErrorCallbacks: SessionErrorCallback[] = [];
   private errorCallbacks: ErrorCallback[] = [];
 
-  connect(baseUrl: string): void {
-    const url = `${baseUrl}/event`;
+  connect(baseUrl: string, apiFamily: ApiFamily = "legacy"): void {
+    const url = `${baseUrl}${apiFamily === "api" ? "/api/event" : "/event"}`;
     // When OPENCODE_SERVER_PASSWORD is set, forward the same Basic auth
     // header we use for regular HTTP requests. The `eventsource` package
     // allows overriding the underlying fetch so we can inject headers —
@@ -83,8 +84,9 @@ export class SSEClient {
   }
 
   private handleMessage(event: SSEEvent): void {
+    const properties = event.properties ?? event.data ?? {};
     if (event.type === "message.part.updated") {
-      const part = (event.properties as any).part;
+      const part = (properties as any).part;
       if (part && part.type === "text") {
         const textPart: TextPart = {
           id: part.id,
@@ -95,13 +97,13 @@ export class SSEClient {
         this.partUpdatedCallbacks.forEach((cb) => cb(textPart));
       }
     } else if (event.type === "session.idle") {
-      const sessionID = (event.properties as any).sessionID;
+      const sessionID = (properties as any).sessionID;
       if (sessionID) {
         this.sessionIdleCallbacks.forEach((cb) => cb(sessionID));
       }
     } else if (event.type === "session.error") {
-      const sessionID = (event.properties as any).sessionID;
-      const error = (event.properties as any).error as
+      const sessionID = (properties as any).sessionID;
+      const error = (properties as any).error as
         | SessionErrorInfo
         | undefined;
       if (sessionID && error) {

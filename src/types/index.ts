@@ -47,7 +47,8 @@ export interface TextPart {
 
 export interface SSEEvent {
   type: string;
-  properties: Record<string, unknown>;
+  properties?: Record<string, unknown>;
+  data?: Record<string, unknown>;
 }
 
 export interface ServeInstance {
