@@ -168,7 +168,8 @@ describe("SessionManager", () => {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            model: { providerID: "github-copilot", modelID: "auto" },
+            providerID: "github-copilot",
+            modelID: "auto",
           }),
         },
       );
@@ -640,6 +641,27 @@ describe("SessionManager", () => {
       await expect(getSessionInfo(3000, "ses_missing")).resolves.toBeNull();
       await expect(listSessions(3000)).resolves.toEqual([]);
       await expect(abortSession(3000, "ses_missing")).resolves.toBe(false);
+    });
+
+    it("surfaces server errors instead of treating them as missing sessions", async () => {
+      mockFetch
+        .mockResolvedValueOnce({ ok: false, status: 500 })
+        .mockResolvedValueOnce({ ok: false, status: 500 })
+        .mockResolvedValueOnce({ ok: false, status: 500 })
+        .mockResolvedValueOnce({ ok: false, status: 500 });
+
+      await expect(validateSession(3000, "ses_abc")).rejects.toThrow(
+        "Failed to validate session: OpenCode server returned HTTP 500",
+      );
+      await expect(getSessionInfo(3000, "ses_abc")).rejects.toThrow(
+        "Failed to get session info: OpenCode server returned HTTP 500",
+      );
+      await expect(listSessions(3000)).rejects.toThrow(
+        "Failed to list sessions: OpenCode server returned HTTP 500",
+      );
+      await expect(abortSession(3000, "ses_abc")).rejects.toThrow(
+        "Failed to abort session: OpenCode server returned HTTP 500",
+      );
     });
 
     it("keeps existing fallback values for transport failures", async () => {

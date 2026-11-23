@@ -10,6 +10,11 @@ function jsonHeaders(): Record<string, string> {
   return { "Content-Type": "application/json", ...getAuthHeaders() };
 }
 
+function assertNotServerError(status: number, context: string): void {
+  if (status < 500) return;
+  throw new Error(`${context}: OpenCode server returned HTTP ${status}`);
+}
+
 export async function createSession(
   port: number,
   apiFamily: ApiFamily = "legacy",
@@ -82,7 +87,7 @@ export async function sendPrompt(
         {
           method: "POST",
           headers: jsonHeaders(),
-          body: JSON.stringify({ model: body.model }),
+          body: JSON.stringify(body.model),
         },
       );
       if (!modelResponse.ok) {
@@ -146,6 +151,7 @@ export async function validateSession(
 
   if (!response.ok) {
     assertNotAuthError(response.status, "Failed to validate session");
+    assertNotServerError(response.status, "Failed to validate session");
   }
   return response.ok;
 }
@@ -168,6 +174,7 @@ export async function getSessionInfo(
 
   if (!response.ok) {
     assertNotAuthError(response.status, "Failed to get session info");
+    assertNotServerError(response.status, "Failed to get session info");
     return null;
   }
   const data = await response.json();
@@ -197,6 +204,7 @@ export async function listSessions(
 
   if (!response.ok) {
     assertNotAuthError(response.status, "Failed to list sessions");
+    assertNotServerError(response.status, "Failed to list sessions");
     return [];
   }
 
@@ -229,6 +237,7 @@ export async function abortSession(
 
   if (!response.ok) {
     assertNotAuthError(response.status, "Failed to abort session");
+    assertNotServerError(response.status, "Failed to abort session");
   }
   if (apiFamily === "api" && response.ok) {
     const data = await response.json();
