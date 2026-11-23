@@ -136,7 +136,12 @@ export async function runPrompt(
     port = await serveManager.spawnServe(effectivePath, preferredModel);
     
     await updateStreamMessage(`${contextHeader}\n📌 **Prompt**: ${prompt}\n\n⏳ Waiting for OpenCode server...`, [buttons]);
-    await serveManager.waitForReady(port, 30000, effectivePath, preferredModel);
+    const apiFamily = await serveManager.waitForReady(
+      port,
+      30000,
+      effectivePath,
+      preferredModel,
+    );
     
     const settings = dataStore.getQueueSettings(threadId);
     
@@ -145,10 +150,15 @@ export async function runPrompt(
       sessionManager.clearSessionForThread(threadId);
     }
 
-    sessionId = await sessionManager.ensureSessionForThread(threadId, effectivePath, port);
+    sessionId = await sessionManager.ensureSessionForThread(
+      threadId,
+      effectivePath,
+      port,
+      apiFamily,
+    );
     
     const sseClient = new SSEClient();
-    sseClient.connect(`http://127.0.0.1:${port}`);
+    sseClient.connect(`http://127.0.0.1:${port}`, apiFamily);
     sessionManager.setSseClient(threadId, sseClient);
     
     sseClient.onPartUpdated((part) => {
@@ -317,8 +327,14 @@ export async function runPrompt(
     }, 1000);
     
     await updateStreamMessage(`${contextHeader}\n📌 **Prompt**: ${prompt}\n\n📝 Sending prompt...`, [buttons]);
-    await sessionManager.sendPrompt(port, sessionId, prompt, preferredModel);
     promptSent = true;
+    await sessionManager.sendPrompt(
+      port,
+      sessionId,
+      prompt,
+      preferredModel,
+      apiFamily,
+    );
     
   } catch (error) {
     if (updateInterval) {

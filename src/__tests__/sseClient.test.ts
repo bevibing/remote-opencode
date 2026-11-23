@@ -50,6 +50,15 @@ describe("SSEClient", () => {
   });
 
   describe("connect", () => {
+    it("connects to the newer event route", () => {
+      client.connect("http://127.0.0.1:3000", "api");
+
+      expect(MockEventSource).toHaveBeenCalledWith(
+        "http://127.0.0.1:3000/api/event",
+        undefined,
+      );
+    });
+
     it("should connect to SSE endpoint", () => {
       client.connect("http://127.0.0.1:3000");
 
@@ -79,6 +88,78 @@ describe("SSEClient", () => {
   });
 
   describe("onPartUpdated", () => {
+    it("accumulates newer API text delta events", () => {
+      const callback = vi.fn();
+      client.connect("http://127.0.0.1:3000", "api");
+      client.onPartUpdated(callback);
+
+      const deltaHandler =
+        mockEventSourceInstance.addEventListener.mock.calls.find(
+          (call: any) => call[0] === "session.text.delta",
+        )?.[1];
+
+      deltaHandler({
+        data: JSON.stringify({
+          type: "session.text.delta",
+          data: {
+            sessionID: "session-v2",
+            assistantMessageID: "message-v2",
+            delta: "Hello",
+          },
+        }),
+      });
+      deltaHandler({
+        data: JSON.stringify({
+          type: "session.text.delta",
+          data: {
+            sessionID: "session-v2",
+            assistantMessageID: "message-v2",
+            delta: " world",
+          },
+        }),
+      });
+
+      expect(callback).toHaveBeenLastCalledWith({
+        id: "message-v2",
+        sessionID: "session-v2",
+        messageID: "message-v2",
+        text: "Hello world",
+      });
+    });
+
+    it("reads event data from the newer API payload", () => {
+      const callback = vi.fn();
+      client.connect("http://127.0.0.1:3000", "api");
+      client.onPartUpdated(callback);
+
+      const messageHandler =
+        mockEventSourceInstance.addEventListener.mock.calls.find(
+          (call: any) => call[0] === "message",
+        )?.[1];
+
+      messageHandler({
+        data: JSON.stringify({
+          type: "message.part.updated",
+          data: {
+            part: {
+              type: "text",
+              id: "part-v2",
+              sessionID: "session-v2",
+              messageID: "msg-v2",
+              text: "New API response",
+            },
+          },
+        }),
+      });
+
+      expect(callback).toHaveBeenCalledWith({
+        id: "part-v2",
+        sessionID: "session-v2",
+        messageID: "msg-v2",
+        text: "New API response",
+      });
+    });
+
     it("should trigger callback for text part updates", () => {
       const callback = vi.fn();
       client.connect("http://127.0.0.1:3000");
@@ -167,6 +248,46 @@ describe("SSEClient", () => {
   });
 
   describe("onSessionIdle", () => {
+    it("treats newer API execution success as session idle", () => {
+      const callback = vi.fn();
+      client.connect("http://127.0.0.1:3000", "api");
+      client.onSessionIdle(callback);
+
+      const successHandler =
+        mockEventSourceInstance.addEventListener.mock.calls.find(
+          (call: any) => call[0] === "session.execution.succeeded",
+        )?.[1];
+
+      successHandler({
+        data: JSON.stringify({
+          type: "session.execution.succeeded",
+          data: { sessionID: "session-v2" },
+        }),
+      });
+
+      expect(callback).toHaveBeenCalledWith("session-v2");
+    });
+
+    it("reads session.idle from the newer API event payload", () => {
+      const callback = vi.fn();
+      client.connect("http://127.0.0.1:3000", "api");
+      client.onSessionIdle(callback);
+
+      const messageHandler =
+        mockEventSourceInstance.addEventListener.mock.calls.find(
+          (call: any) => call[0] === "message",
+        )?.[1];
+
+      messageHandler({
+        data: JSON.stringify({
+          type: "session.idle",
+          data: { sessionID: "session-v2" },
+        }),
+      });
+
+      expect(callback).toHaveBeenCalledWith("session-v2");
+    });
+
     it("should trigger callback for session.idle events", () => {
       const callback = vi.fn();
       client.connect("http://127.0.0.1:3000");

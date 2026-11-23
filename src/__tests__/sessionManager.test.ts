@@ -88,6 +88,24 @@ describe("SessionManager", () => {
   });
 
   describe("createSession", () => {
+    it("creates a session through the newer API", async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ data: { id: "ses_v2" } }),
+      });
+
+      await expect(createSession(3001, "api")).resolves.toBe("ses_v2");
+
+      expect(mockFetch).toHaveBeenCalledWith(
+        "http://127.0.0.1:3001/api/session",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: "{}",
+        },
+      );
+    });
+
     it("should create a session via HTTP POST and return sessionId", async () => {
       const mockSessionId = "ses_abc123";
       mockFetch.mockResolvedValueOnce({
@@ -130,6 +148,52 @@ describe("SessionManager", () => {
   });
 
   describe("sendPrompt", () => {
+    it("sets the session model and sends a prompt through the newer API", async () => {
+      mockFetch
+        .mockResolvedValueOnce({ ok: true, status: 204 })
+        .mockResolvedValueOnce({ ok: true, status: 202 });
+
+      await sendPrompt(
+        3001,
+        "ses_v2",
+        "Hello OpenCode",
+        "github-copilot/auto",
+        "api",
+      );
+
+      expect(mockFetch).toHaveBeenNthCalledWith(
+        1,
+        "http://127.0.0.1:3001/api/session/ses_v2/model",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            model: { providerID: "github-copilot", id: "auto" },
+          }),
+        },
+      );
+      expect(mockFetch).toHaveBeenNthCalledWith(
+        2,
+        "http://127.0.0.1:3001/api/session/ses_v2/prompt",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ text: "Hello OpenCode" }),
+        },
+      );
+    });
+
+    it("does not treat an idle newer-API session as interrupted", async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ interrupted: false }),
+      });
+
+      await expect(
+        abortSession(3002, "ses_idle", "api"),
+      ).resolves.toBe(false);
+    });
+
     it("should send prompt via HTTP POST with correct payload", async () => {
       mockFetch.mockResolvedValueOnce({
         ok: true,
@@ -190,6 +254,47 @@ describe("SessionManager", () => {
     });
   });
 
+  describe("newer API session operations", () => {
+    it("validates, reads, lists, and interrupts sessions through the newer API", async () => {
+      mockFetch
+        .mockResolvedValueOnce({ ok: true })
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({
+            data: { id: "ses_v2", title: "Current session" },
+          }),
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({
+            data: [{ id: "ses_v2", title: "Current session" }],
+            cursor: {},
+          }),
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({ interrupted: true }),
+        });
+
+      await expect(validateSession(3002, "ses_v2", "api")).resolves.toBe(true);
+      await expect(getSessionInfo(3002, "ses_v2", "api")).resolves.toEqual({
+        id: "ses_v2",
+        title: "Current session",
+      });
+      await expect(listSessions(3002, "api")).resolves.toEqual([
+        { id: "ses_v2", title: "Current session" },
+      ]);
+      await expect(abortSession(3002, "ses_v2", "api")).resolves.toBe(true);
+
+      expect(mockFetch.mock.calls.map(([url]) => url)).toEqual([
+        "http://127.0.0.1:3002/api/session/ses_v2",
+        "http://127.0.0.1:3002/api/session/ses_v2",
+        "http://127.0.0.1:3002/api/session",
+        "http://127.0.0.1:3002/api/session/ses_v2/interrupt",
+      ]);
+    });
+  });
+
   describe("thread-session mapping", () => {
     it("should store and retrieve session for thread", () => {
       setSessionForThread("thread1", "ses_123", "/path/to/project", 4000);
@@ -244,6 +349,28 @@ describe("SessionManager", () => {
   });
 
   describe("ensureSessionForThread", () => {
+    it("attaches a newer-API session to its Discord thread", async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ data: { id: "ses_v2_thread" } }),
+      });
+
+      await expect(
+        ensureSessionForThread(
+          "thread-v2",
+          "/path/to/project",
+          4013,
+          "api",
+        ),
+      ).resolves.toBe("ses_v2_thread");
+
+      expect(dataStoreMock.getThreadSession("thread-v2")).toMatchObject({
+        sessionId: "ses_v2_thread",
+        projectPath: "/path/to/project",
+        port: 4013,
+      });
+    });
+
     it("should reuse and refresh an existing valid session", async () => {
       setSessionForThread("thread5", "ses_valid", "/path/to/project", 4000);
       const original = dataStoreMock.getThreadSession("thread5");
@@ -513,6 +640,27 @@ describe("SessionManager", () => {
       await expect(getSessionInfo(3000, "ses_missing")).resolves.toBeNull();
       await expect(listSessions(3000)).resolves.toEqual([]);
       await expect(abortSession(3000, "ses_missing")).resolves.toBe(false);
+    });
+
+    it("surfaces server errors instead of treating them as missing sessions", async () => {
+      mockFetch
+        .mockResolvedValueOnce({ ok: false, status: 500 })
+        .mockResolvedValueOnce({ ok: false, status: 500 })
+        .mockResolvedValueOnce({ ok: false, status: 500 })
+        .mockResolvedValueOnce({ ok: false, status: 500 });
+
+      await expect(validateSession(3000, "ses_abc")).rejects.toThrow(
+        "Failed to validate session: OpenCode server returned HTTP 500",
+      );
+      await expect(getSessionInfo(3000, "ses_abc")).rejects.toThrow(
+        "Failed to get session info: OpenCode server returned HTTP 500",
+      );
+      await expect(listSessions(3000)).rejects.toThrow(
+        "Failed to list sessions: OpenCode server returned HTTP 500",
+      );
+      await expect(abortSession(3000, "ses_abc")).rejects.toThrow(
+        "Failed to abort session: OpenCode server returned HTTP 500",
+      );
     });
 
     it("keeps existing fallback values for transport failures", async () => {

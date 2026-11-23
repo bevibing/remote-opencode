@@ -2,6 +2,7 @@ import type { SSEClient } from "./sseClient.js";
 import * as dataStore from "./dataStore.js";
 import { sanitizeModel } from "../utils/stringUtils.js";
 import { getAuthHeaders, assertNotAuthError } from "./serverAuth.js";
+import type { ApiFamily } from "./serveManager.js";
 
 const threadSseClients = new Map<string, SSEClient>();
 
@@ -9,8 +10,16 @@ function jsonHeaders(): Record<string, string> {
   return { "Content-Type": "application/json", ...getAuthHeaders() };
 }
 
-export async function createSession(port: number): Promise<string> {
-  const url = `http://127.0.0.1:${port}/session`;
+function assertNotServerError(status: number, context: string): void {
+  if (status < 500) return;
+  throw new Error(`${context}: OpenCode server returned HTTP ${status}`);
+}
+
+export async function createSession(
+  port: number,
+  apiFamily: ApiFamily = "legacy",
+): Promise<string> {
+  const url = `http://127.0.0.1:${port}${apiFamily === "api" ? "/api/session" : "/session"}`;
   const response = await fetch(url, {
     method: "POST",
     headers: jsonHeaders(),
@@ -26,11 +35,12 @@ export async function createSession(port: number): Promise<string> {
 
   const data = await response.json();
 
-  if (!data.id) {
+  const sessionId = apiFamily === "api" ? data.data?.id : data.id;
+  if (!sessionId) {
     throw new Error("Invalid session response: missing id");
   }
 
-  return data.id;
+  return sessionId;
 }
 
 function parseModelString(
@@ -52,8 +62,9 @@ export async function sendPrompt(
   sessionId: string,
   text: string,
   model?: string,
+  apiFamily: ApiFamily = "legacy",
 ): Promise<void> {
-  const url = `http://127.0.0.1:${port}/session/${sessionId}/prompt_async`;
+  const baseUrl = `http://127.0.0.1:${port}`;
   const body: {
     parts: { type: string; text: string }[];
     model?: { providerID: string; modelID: string };
@@ -69,11 +80,54 @@ export async function sendPrompt(
     }
   }
 
-  const response = await fetch(url, {
-    method: "POST",
-    headers: jsonHeaders(),
-    body: JSON.stringify(body),
-  });
+  if (apiFamily === "api") {
+    if (body.model) {
+      const modelResponse = await fetch(
+        `${baseUrl}/api/session/${sessionId}/model`,
+        {
+          method: "POST",
+          headers: jsonHeaders(),
+          body: JSON.stringify({
+            model: {
+              providerID: body.model.providerID,
+              id: body.model.modelID,
+            },
+          }),
+        },
+      );
+      if (!modelResponse.ok) {
+        const responseBody = await modelResponse.text();
+        assertNotAuthError(modelResponse.status, "Failed to set session model");
+        throw new Error(
+          `Failed to set session model: ${modelResponse.status} ${modelResponse.statusText} — ${responseBody}`,
+        );
+      }
+    }
+
+    const response = await fetch(`${baseUrl}/api/session/${sessionId}/prompt`, {
+      method: "POST",
+      headers: jsonHeaders(),
+      body: JSON.stringify({ text }),
+    });
+
+    if (!response.ok) {
+      const responseBody = await response.text();
+      assertNotAuthError(response.status, "Failed to send prompt");
+      throw new Error(
+        `Failed to send prompt: ${response.status} ${response.statusText} — ${responseBody}`,
+      );
+    }
+    return;
+  }
+
+  const response = await fetch(
+    `${baseUrl}/session/${sessionId}/prompt_async`,
+    {
+      method: "POST",
+      headers: jsonHeaders(),
+      body: JSON.stringify(body),
+    },
+  );
 
   if (!response.ok) {
     const responseBody = await response.text();
@@ -87,8 +141,9 @@ export async function sendPrompt(
 export async function validateSession(
   port: number,
   sessionId: string,
+  apiFamily: ApiFamily = "legacy",
 ): Promise<boolean> {
-  const url = `http://127.0.0.1:${port}/session/${sessionId}`;
+  const url = `http://127.0.0.1:${port}${apiFamily === "api" ? `/api/session/${sessionId}` : `/session/${sessionId}`}`;
   let response: Response;
   try {
     response = await fetch(url, {
@@ -101,6 +156,7 @@ export async function validateSession(
 
   if (!response.ok) {
     assertNotAuthError(response.status, "Failed to validate session");
+    assertNotServerError(response.status, "Failed to validate session");
   }
   return response.ok;
 }
@@ -108,8 +164,9 @@ export async function validateSession(
 export async function getSessionInfo(
   port: number,
   sessionId: string,
+  apiFamily: ApiFamily = "legacy",
 ): Promise<SessionInfo | null> {
-  const url = `http://127.0.0.1:${port}/session/${sessionId}`;
+  const url = `http://127.0.0.1:${port}${apiFamily === "api" ? `/api/session/${sessionId}` : `/session/${sessionId}`}`;
   let response: Response;
   try {
     response = await fetch(url, {
@@ -122,10 +179,12 @@ export async function getSessionInfo(
 
   if (!response.ok) {
     assertNotAuthError(response.status, "Failed to get session info");
+    assertNotServerError(response.status, "Failed to get session info");
     return null;
   }
   const data = await response.json();
-  return { id: data.id, title: data.title ?? "" };
+  const session = apiFamily === "api" ? data.data : data;
+  return { id: session.id, title: session.title ?? "" };
 }
 
 export interface SessionInfo {
@@ -133,8 +192,11 @@ export interface SessionInfo {
   title: string;
 }
 
-export async function listSessions(port: number): Promise<SessionInfo[]> {
-  const url = `http://127.0.0.1:${port}/session`;
+export async function listSessions(
+  port: number,
+  apiFamily: ApiFamily = "legacy",
+): Promise<SessionInfo[]> {
+  const url = `http://127.0.0.1:${port}${apiFamily === "api" ? "/api/session" : "/session"}`;
   let response: Response;
   try {
     response = await fetch(url, {
@@ -147,12 +209,14 @@ export async function listSessions(port: number): Promise<SessionInfo[]> {
 
   if (!response.ok) {
     assertNotAuthError(response.status, "Failed to list sessions");
+    assertNotServerError(response.status, "Failed to list sessions");
     return [];
   }
 
   const data = await response.json();
-  if (Array.isArray(data)) {
-    return data.map((s: { id: string; title?: string }) => ({
+  const sessions = apiFamily === "api" ? data.data : data;
+  if (Array.isArray(sessions)) {
+    return sessions.map((s: { id: string; title?: string }) => ({
       id: s.id,
       title: s.title ?? "",
     }));
@@ -163,8 +227,9 @@ export async function listSessions(port: number): Promise<SessionInfo[]> {
 export async function abortSession(
   port: number,
   sessionId: string,
+  apiFamily: ApiFamily = "legacy",
 ): Promise<boolean> {
-  const url = `http://127.0.0.1:${port}/session/${sessionId}/abort`;
+  const url = `http://127.0.0.1:${port}${apiFamily === "api" ? `/api/session/${sessionId}/interrupt` : `/session/${sessionId}/abort`}`;
   let response: Response;
   try {
     response = await fetch(url, {
@@ -177,6 +242,11 @@ export async function abortSession(
 
   if (!response.ok) {
     assertNotAuthError(response.status, "Failed to abort session");
+    assertNotServerError(response.status, "Failed to abort session");
+  }
+  if (apiFamily === "api" && response.ok) {
+    const data = await response.json();
+    return data.interrupted === true;
   }
   return response.ok;
 }
@@ -215,11 +285,16 @@ export async function ensureSessionForThread(
   threadId: string,
   projectPath: string,
   port: number,
+  apiFamily: ApiFamily = "legacy",
 ): Promise<string> {
   const existingSession = getSessionForThread(threadId);
 
   if (existingSession && existingSession.projectPath === projectPath) {
-    const isValid = await validateSession(port, existingSession.sessionId);
+    const isValid = await validateSession(
+      port,
+      existingSession.sessionId,
+      apiFamily,
+    );
     if (isValid) {
       setSessionForThread(
         threadId,
@@ -231,7 +306,7 @@ export async function ensureSessionForThread(
     }
   }
 
-  const sessionId = await createSession(port);
+  const sessionId = await createSession(port, apiFamily);
   setSessionForThread(threadId, sessionId, projectPath, port);
   return sessionId;
 }

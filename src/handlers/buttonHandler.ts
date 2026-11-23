@@ -58,7 +58,17 @@ async function handleInterrupt(interaction: ButtonInteraction, threadId: string)
 
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
   
-  const success = await sessionManager.abortSession(port, session.sessionId);
+  const apiFamily = await serveManager.waitForReady(
+    port,
+    30000,
+    session.projectPath,
+    preferredModel,
+  );
+  const success = await sessionManager.abortSession(
+    port,
+    session.sessionId,
+    apiFamily,
+  );
   
   if (success) {
     await interaction.editReply({ content: '⏸️ Interrupt request sent.' });
@@ -109,12 +119,28 @@ async function handleWorktreePR(interaction: ButtonInteraction, threadId: string
 
   try {
     const port = await serveManager.spawnServe(mapping.worktreePath, preferredModel);
-    await serveManager.waitForReady(port, 30000, mapping.worktreePath, preferredModel);
+    const apiFamily = await serveManager.waitForReady(
+      port,
+      30000,
+      mapping.worktreePath,
+      preferredModel,
+    );
 
-    const sessionId = await sessionManager.ensureSessionForThread(threadId, mapping.worktreePath, port);
+    const sessionId = await sessionManager.ensureSessionForThread(
+      threadId,
+      mapping.worktreePath,
+      port,
+      apiFamily,
+    );
 
     const prPrompt = `Create a pull request for the current branch. Include a clear title and description summarizing all changes.`;
-    await sessionManager.sendPrompt(port, sessionId, prPrompt, preferredModel);
+    await sessionManager.sendPrompt(
+      port,
+      sessionId,
+      prPrompt,
+      preferredModel,
+      apiFamily,
+    );
 
     await interaction.editReply({ content: '🚀 PR creation started! Check the thread for progress.' });
   } catch (error) {

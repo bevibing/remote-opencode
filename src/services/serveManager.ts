@@ -13,6 +13,44 @@ const POSIX_OPENCODE_COMMANDS = ["opencode"];
 
 const instances = new Map<string, ServeInstance>();
 
+export type ApiFamily = "legacy" | "api";
+
+function throwReadinessAuthError(port: number, status: number): void {
+  if (status !== 401 && status !== 403) {
+    return;
+  }
+
+  const hint = isAuthEnabled()
+    ? "credentials were rejected by the opencode server. Verify OPENCODE_SERVER_PASSWORD (and OPENCODE_SERVER_USERNAME if set) match the values opencode serve was started with."
+    : "opencode server requires authentication but OPENCODE_SERVER_PASSWORD is not set in this process.";
+  throw new Error(
+    `opencode serve is running on port ${port} but ${hint}`,
+  );
+}
+
+async function probeServer(port: number): Promise<ApiFamily | undefined> {
+  const baseUrl = `http://127.0.0.1:${port}`;
+  const apiResponse = await fetch(`${baseUrl}/api/info`, {
+    headers: getAuthHeaders(),
+  });
+  if (apiResponse.ok) {
+    return "api";
+  }
+  throwReadinessAuthError(port, apiResponse.status);
+  if (apiResponse.status !== 404 && apiResponse.status !== 405) {
+    return undefined;
+  }
+
+  const legacyResponse = await fetch(`${baseUrl}/session`, {
+    headers: getAuthHeaders(),
+  });
+  if (legacyResponse.ok) {
+    return "legacy";
+  }
+  throwReadinessAuthError(port, legacyResponse.status);
+  return undefined;
+}
+
 function getOpencodeCommandCandidates(): string[] {
   return process.platform === "win32"
     ? WINDOWS_OPENCODE_COMMANDS
@@ -271,9 +309,8 @@ export async function waitForReady(
   timeout: number = 30000,
   projectPath?: string,
   model?: string,
-): Promise<void> {
+): Promise<ApiFamily> {
   const start = Date.now();
-  const url = `http://127.0.0.1:${port}/session`;
   const key = projectPath
     ? model
       ? `${projectPath}:${model}`
@@ -294,17 +331,9 @@ export async function waitForReady(
     }
 
     try {
-      const response = await fetch(url, { headers: getAuthHeaders() });
-      if (response.ok) {
-        return;
-      }
-      if (response.status === 401 || response.status === 403) {
-        const hint = isAuthEnabled()
-          ? "credentials were rejected by the opencode server. Verify OPENCODE_SERVER_PASSWORD (and OPENCODE_SERVER_USERNAME if set) match the values opencode serve was started with."
-          : "opencode server requires authentication but OPENCODE_SERVER_PASSWORD is not set in this process.";
-        throw new Error(
-          `opencode serve is running on port ${port} but ${hint}`,
-        );
+      const apiFamily = await probeServer(port);
+      if (apiFamily) {
+        return apiFamily;
       }
     } catch (err) {
       // Surface auth errors immediately instead of silently retrying until timeout.

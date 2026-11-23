@@ -2,6 +2,7 @@
 process.removeAllListeners('warning');
 import { Command } from 'commander';
 import pc from 'picocolors';
+import { existsSync } from 'node:fs';
 import { createRequire } from 'module';
 import updateNotifier from 'update-notifier';
 import { runSetupWizard } from './setup/wizard.js';
@@ -9,6 +10,10 @@ import { deployCommands } from './setup/deploy.js';
 import { undeployCommands } from './setup/undeploy.js';
 import { startBot } from './bot.js';
 import { hasBotConfig, getConfigDir, getAllowedUserIds, addAllowedUserId, removeAllowedUserId, setAllowedUserIds, getOpenAIApiKey, setOpenAIApiKey, removeOpenAIApiKey } from './services/configStore.js';
+
+if (existsSync('.env')) {
+  process.loadEnvFile('.env');
+}
 
 const require = createRequire(import.meta.url);
 // In dev mode (src/cli.ts), package.json is one level up

@@ -312,6 +312,20 @@ describe("serveManager", () => {
       vi.useRealTimers();
     });
 
+    it("returns the newer API family when the API info route responds", async () => {
+      vi.mocked(fetch).mockResolvedValue({
+        ok: true,
+        json: async () => ({ version: "2.4.1" }),
+      } as Response);
+
+      await expect(serveManager.waitForReady(14098)).resolves.toBe("api");
+
+      expect(fetch).toHaveBeenCalledWith(
+        "http://127.0.0.1:14098/api/info",
+        { headers: {} },
+      );
+    });
+
     it("should resolve when fetch returns ok", async () => {
       vi.mocked(fetch).mockResolvedValue({ ok: true } as Response);
 
@@ -319,16 +333,37 @@ describe("serveManager", () => {
 
       await vi.runAllTimersAsync();
 
-      await expect(promise).resolves.toBeUndefined();
-      expect(fetch).toHaveBeenCalledWith("http://127.0.0.1:14097/session", {
+      await expect(promise).resolves.toBe("api");
+      expect(fetch).toHaveBeenCalledWith("http://127.0.0.1:14097/api/info", {
         headers: {},
       });
+    });
+
+    it("uses the legacy route when API info is unsupported", async () => {
+      vi.mocked(fetch)
+        .mockResolvedValueOnce({ ok: false, status: 404 } as Response)
+        .mockResolvedValueOnce({ ok: true } as Response);
+
+      await expect(serveManager.waitForReady(14099)).resolves.toBe("legacy");
+
+      expect(fetch).toHaveBeenNthCalledWith(
+        1,
+        "http://127.0.0.1:14099/api/info",
+        { headers: {} },
+      );
+      expect(fetch).toHaveBeenNthCalledWith(
+        2,
+        "http://127.0.0.1:14099/session",
+        { headers: {} },
+      );
     });
 
     it("should retry if fetch fails or returns not ok", async () => {
       vi.mocked(fetch)
         .mockRejectedValueOnce(new Error("Connection refused"))
-        .mockResolvedValueOnce({ ok: false } as Response)
+        .mockResolvedValueOnce({ ok: false, status: 404 } as Response)
+        .mockResolvedValueOnce({ ok: false, status: 404 } as Response)
+        .mockResolvedValueOnce({ ok: false, status: 404 } as Response)
         .mockResolvedValueOnce({ ok: true } as Response);
 
       const promise = serveManager.waitForReady(14097);
@@ -337,8 +372,8 @@ describe("serveManager", () => {
       await vi.advanceTimersByTimeAsync(1000);
       await vi.advanceTimersByTimeAsync(1000);
 
-      await expect(promise).resolves.toBeUndefined();
-      expect(fetch).toHaveBeenCalledTimes(3);
+      await expect(promise).resolves.toBe("legacy");
+      expect(fetch).toHaveBeenCalledTimes(5);
     });
 
     it("should throw error on timeout", async () => {
@@ -415,10 +450,10 @@ describe("serveManager", () => {
 
         const promise = serveManager.waitForReady(14097);
         await vi.runAllTimersAsync();
-        await expect(promise).resolves.toBeUndefined();
+        await expect(promise).resolves.toBe("api");
 
         const expected = `Basic ${Buffer.from("opencode:s3cret").toString("base64")}`;
-        expect(fetch).toHaveBeenCalledWith("http://127.0.0.1:14097/session", {
+        expect(fetch).toHaveBeenCalledWith("http://127.0.0.1:14097/api/info", {
           headers: { Authorization: expected },
         });
       });
