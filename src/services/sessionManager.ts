@@ -87,7 +87,12 @@ export async function sendPrompt(
         {
           method: "POST",
           headers: jsonHeaders(),
-          body: JSON.stringify(body.model),
+          body: JSON.stringify({
+            model: {
+              providerID: body.model.providerID,
+              id: body.model.modelID,
+            },
+          }),
         },
       );
       if (!modelResponse.ok) {

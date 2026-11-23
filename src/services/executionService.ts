@@ -327,6 +327,7 @@ export async function runPrompt(
     }, 1000);
     
     await updateStreamMessage(`${contextHeader}\n📌 **Prompt**: ${prompt}\n\n📝 Sending prompt...`, [buttons]);
+    promptSent = true;
     await sessionManager.sendPrompt(
       port,
       sessionId,
@@ -334,7 +335,6 @@ export async function runPrompt(
       preferredModel,
       apiFamily,
     );
-    promptSent = true;
     
   } catch (error) {
     if (updateInterval) {

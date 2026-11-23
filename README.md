@@ -498,6 +498,9 @@ Browse OpenCode CLI sessions and manage session-thread mappings. Useful for resu
 4. Use `/session info` to check if the session is alive, see its port, creation time, etc.
 5. Use `/session detach` to disconnect and start fresh
 
+Session API compatibility is detected automatically. Newer OpenCode servers use
+the current API; older servers continue using legacy routes.
+
 **Features:**
 
 - 📋 **Merged view** — combines active server sessions with persisted thread mappings
@@ -636,23 +639,25 @@ remote-opencode allow reset    # Clears entire allowlist (disables access contro
 
 ### OpenCode server password (optional)
 
-`remote-opencode` communicates with a local `opencode serve` process bound to
-`127.0.0.1`. If you already run `opencode serve` with upstream HTTP Basic auth
-enabled via `OPENCODE_SERVER_PASSWORD` (and optionally `OPENCODE_SERVER_USERNAME`),
-the bot will automatically pick up the same credentials from its own environment
-and apply them to all internal communication — session HTTP calls, the SSE
-`/event` stream, and readiness probes.
+`remote-opencode` starts or reuses a local `opencode serve` process bound to
+`127.0.0.1`. Set `OPENCODE_SERVER_PASSWORD` to a fixed value when the server
+uses HTTP Basic auth. The bot passes it to servers it starts and uses it for
+session requests, SSE, and readiness checks. Reused servers must use the same
+password.
 
-```bash
-# Example: start the bot with upstream opencode auth enabled
-OPENCODE_SERVER_PASSWORD='your-password' remote-opencode start
+Create `.env` in the directory where you run `remote-opencode`, and add:
+
+```env
+OPENCODE_SERVER_PASSWORD=your-password
+# Optional; defaults to opencode
+OPENCODE_SERVER_USERNAME=opencode
 ```
+
+The CLI loads `.env` on startup. Existing environment variables take precedence.
 
 Notes:
 
-- Behavior is **unchanged when these env vars are not set** — this is purely
-  optional hardening / compatibility for users who already rely on upstream
-  `opencode serve` auth.
+- Without server authentication, leave these variables unset.
 - This is **not a replacement** for the Discord allowlist described above; it is
   an additional layer for the local HTTP surface only.
 - `OPENCODE_SERVER_USERNAME` defaults to `opencode` to match upstream.

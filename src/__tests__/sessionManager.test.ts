@@ -168,8 +168,7 @@ describe("SessionManager", () => {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            providerID: "github-copilot",
-            modelID: "auto",
+            model: { providerID: "github-copilot", id: "auto" },
           }),
         },
       );

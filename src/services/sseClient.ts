@@ -17,6 +17,7 @@ export class SSEClient {
   private sessionIdleCallbacks: SessionIdleCallback[] = [];
   private sessionErrorCallbacks: SessionErrorCallback[] = [];
   private errorCallbacks: ErrorCallback[] = [];
+  private textByMessage = new Map<string, string>();
 
   connect(baseUrl: string, apiFamily: ApiFamily = "legacy"): void {
     const url = `${baseUrl}${apiFamily === "api" ? "/api/event" : "/event"}`;
@@ -37,14 +38,31 @@ export class SSEClient {
         : undefined;
     this.eventSource = new EventSource(url, init);
 
-    this.eventSource.addEventListener("message", (event: MessageEvent) => {
+    const handleEvent = (event: MessageEvent, eventType?: string): void => {
       try {
-        const data: SSEEvent = JSON.parse(event.data);
-        this.handleMessage(data);
+        const data = JSON.parse(event.data) as Partial<SSEEvent>;
+        this.handleMessage({
+          ...data,
+          type: data.type ?? eventType ?? "",
+        } as SSEEvent);
       } catch (error) {
         this.handleError(new Error(`Failed to parse SSE event: ${error}`));
       }
-    });
+    };
+
+    this.eventSource.addEventListener("message", handleEvent);
+    if (apiFamily === "api") {
+      for (const eventType of [
+        "session.text.delta",
+        "session.idle",
+        "session.execution.succeeded",
+        "session.error",
+      ]) {
+        this.eventSource.addEventListener(eventType, (event: MessageEvent) =>
+          handleEvent(event, eventType),
+        );
+      }
+    }
 
     this.eventSource.addEventListener("error", (error: Event) => {
       this.handleError(
@@ -96,10 +114,33 @@ export class SSEClient {
         };
         this.partUpdatedCallbacks.forEach((cb) => cb(textPart));
       }
-    } else if (event.type === "session.idle") {
+    } else if (
+      event.type === "session.idle" ||
+      event.type === "session.execution.succeeded"
+    ) {
       const sessionID = (properties as any).sessionID;
       if (sessionID) {
         this.sessionIdleCallbacks.forEach((cb) => cb(sessionID));
+      }
+    } else if (event.type === "session.text.delta") {
+      const sessionID = (properties as any).sessionID;
+      const messageID = (properties as any).assistantMessageID;
+      const delta = (properties as any).delta;
+      if (
+        typeof sessionID === "string" &&
+        typeof messageID === "string" &&
+        typeof delta === "string"
+      ) {
+        const key = `${sessionID}:${messageID}`;
+        const text = (this.textByMessage.get(key) ?? "") + delta;
+        this.textByMessage.set(key, text);
+        const textPart: TextPart = {
+          id: messageID,
+          sessionID,
+          messageID,
+          text,
+        };
+        this.partUpdatedCallbacks.forEach((cb) => cb(textPart));
       }
     } else if (event.type === "session.error") {
       const sessionID = (properties as any).sessionID;
